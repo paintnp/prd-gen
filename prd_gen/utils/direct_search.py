@@ -18,9 +18,9 @@ from prd_gen.utils.debugging import setup_logging, log_error
 logger = setup_logging()
 
 # Configure max content size to prevent token limit issues
-MAX_RESULT_CHARS = 10000  # Limit characters per search result
-MAX_TOTAL_CHARS = 30000  # Limit total characters for all results combined
-MAX_RESULTS = 5  # Limit number of results returned
+MAX_RESULT_CHARS = 8000  # Limit characters per search result
+MAX_TOTAL_CHARS = 20000  # Limit total characters for all results combined
+MAX_RESULTS = 2  # Limit number of results returned
 
 class DirectSearchClient:
     """
