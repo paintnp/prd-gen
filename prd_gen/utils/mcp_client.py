@@ -6,10 +6,15 @@ import asyncio
 import logging
 import time
 import os
-from typing import List, Optional, Any, Dict
+import json
+import inspect
+from typing import List, Optional, Any, Dict, Union
+from functools import partial
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, tool
 from prd_gen.utils.debugging import setup_logging
+from langchain_core.callbacks import CallbackManagerForToolRun
+from langchain_core.pydantic_v1 import BaseModel, create_model, Field
 
 # Set up logging
 logger = setup_logging()
@@ -121,51 +126,150 @@ class MCPToolProvider:
         """
         return any(tool.name == "search_web" for tool in self.tools)
 
-# Singleton instance to be used across the application
-_mcp_client = None
+# Cached tools for efficiency
 _mcp_tools = None  # Cache for tools
+_mcp_client = None  # Cached MCP client
+_mcp_session_id = None  # Cached session ID
 
-async def get_mcp_tools() -> List[BaseTool]:
+def args_schema_from_openapi(schema: Dict[str, Any]) -> type[BaseModel]:
     """
-    Get MCP tools for use in the application. Creates and connects the client if needed.
+    Create a Pydantic model from an OpenAPI schema.
+    
+    Args:
+        schema (Dict[str, Any]): The OpenAPI schema.
+        
+    Returns:
+        type[BaseModel]: The Pydantic model.
+    """
+    properties = schema.get("properties", {})
+    required = schema.get("required", [])
+    
+    # Create field definitions
+    fields = {}
+    for name, prop in properties.items():
+        field_type = str  # Default type
+        if prop.get("type") == "boolean":
+            field_type = bool
+        elif prop.get("type") == "integer":
+            field_type = int
+        elif prop.get("type") == "number":
+            field_type = float
+        
+        # Set default if available, otherwise None
+        default = prop.get("default", ... if name in required else None)
+        
+        # Add field with type and default
+        fields[name] = (field_type, Field(default=default, description=prop.get("description", "")))
+    
+    # Create the model
+    model_name = schema.get("title", "ArgsSchema")
+    return create_model(model_name, **fields)
+
+async def create_sse_connection(url=None):
+    """
+    Create a connection to the MCP server.
+    
+    Args:
+        url (str, optional): The SSE server URL. If None, uses the default URL.
+        
+    Returns:
+        Tuple[MultiServerMCPClient, str]: The MCP client and session ID
+    """
+    url = url or os.environ.get("MCP_SERVER_URL", "http://localhost:9000/sse")
+    logger.info(f"Connecting to MCP server at {url}...")
+    
+    try:
+        # Create the client without any initial connections
+        client = MultiServerMCPClient()
+        
+        # Connect to the server via SSE with proper error handling
+        connection_id = "default"
+        
+        # Use a try/except with specific handling for TaskGroup cancellation
+        for attempt in range(1, 4):  # Try up to 3 times
+            try:
+                await client.connect_to_server_via_sse(connection_id, url=url)
+                logger.info(f"Successfully connected to MCP server on attempt {attempt}")
+                return client, connection_id
+            except Exception as e:
+                # Check for TaskGroup cancellation errors
+                error_msg = str(e).lower()
+                is_cancel_scope_error = (
+                    "cancel scope" in error_msg or 
+                    "cancelled by cancel scope" in error_msg or
+                    "runtime error: unhandled errors in a taskgroup" in error_msg
+                )
+                
+                # Check if it's a 404 error
+                is_404 = "404" in error_msg or "not found" in error_msg
+                
+                if is_cancel_scope_error:
+                    logger.error(f"TaskGroup cancellation error: {e}")
+                    # Create a fresh client and retry immediately
+                    client = MultiServerMCPClient()
+                    continue
+                    
+                if is_404 and "/sse" not in url and attempt == 1:
+                    suggested_url = url
+                    if suggested_url.endswith("/"):
+                        suggested_url = suggested_url[:-1]
+                    suggested_url += "/sse"
+                    logger.error(f"404 Not Found error - endpoint may be incorrect. Try {suggested_url} instead.")
+                    
+                if attempt < 3:  # Don't log on the last attempt
+                    logger.warning(f"Connection attempt {attempt} failed: {e}. Retrying...")
+                    await asyncio.sleep(1)
+                else:
+                    # Last attempt failed
+                    logger.error(f"Error connecting to MCP server: {e}")
+                    raise Exception(f"Failed to connect to MCP server at {url} after {attempt} attempts.") from e
+    except Exception as e:
+        logger.error(f"Error creating MCP client: {e}")
+        raise Exception(f"Error creating MCP client: {e}") from e
+
+async def get_mcp_tools():
+    """
+    Get tools from the MCP server. Uses caching to avoid redundant connections.
     
     Returns:
-        List[BaseTool]: List of tools from the MCP server.
+        List[BaseTool]: The tools available from the MCP server
     """
-    global _mcp_client, _mcp_tools
+    global _mcp_tools, _mcp_client, _mcp_session_id
     
-    # If we already have cached tools, return them
-    if _mcp_tools is not None and len(_mcp_tools) > 0:
+    # Check if we should use a fresh connection
+    force_new = os.environ.get("MCP_FORCE_NEW_CONNECTION", "").lower() in ("true", "1", "yes")
+    
+    # If we already have cached tools and we're not forcing a new connection, return them
+    if _mcp_tools is not None and len(_mcp_tools) > 0 and not force_new:
         logger.debug(f"Using cached MCP tools ({len(_mcp_tools)} tools)")
         return _mcp_tools
     
     try:
-        # Create a fresh client for each call to avoid connection conflicts
-        client = MCPToolProvider()
-        connected = await client.connect()
+        # Try to use the connection function
+        client, connection_id = await create_sse_connection()
+        _mcp_client = client
+        _mcp_session_id = connection_id
         
-        if connected:
+        # Get the tools
+        try:
+            # Get tools from the MCP server
             tools = client.get_tools()
+            
+            # Log the number of tools found
             if tools:
+                logger.info(f"Retrieved {len(tools)} tools from MCP server: {[t.name for t in tools]}")
                 # Cache the tools for future use
                 _mcp_tools = tools
-                # Update singleton instance
-                _mcp_client = client
-                return tools
-        
-        # If we couldn't get tools this way, try to use the existing singleton
-        if _mcp_client is not None:
-            logger.info("Using existing MCP client")
-            tools = _mcp_client.get_tools()
-            if tools:
-                _mcp_tools = tools
-                return tools
-        
-        logger.warning("Failed to retrieve tools from MCP server")
-        return []
+            else:
+                logger.warning("No tools found on the MCP server")
+            
+            return tools
+        except Exception as e:
+            logger.error(f"Error processing tools: {e}")
+            return []
     except Exception as e:
-        logger.error(f"Error in get_mcp_tools: {e}")
-        # Return empty list if we get an exception
+        logger.error(f"Error connecting to MCP server: {e}")
+        logger.warning("Failed to retrieve tools from MCP server")
         return []
 
 async def _safe_invoke_search_tool(search_tool, query):
@@ -207,65 +311,146 @@ async def _safe_invoke_search_tool(search_tool, query):
 
 def run_async(coro):
     """
-    Helper function to run async code in a synchronous context.
+    Run an async coroutine in a synchronous context.
     
     Args:
-        coro: A coroutine or coroutine function to run
+        coro: The coroutine to run
         
     Returns:
-        The result of running the coroutine
+        The result of the coroutine
     """
     try:
-        # Get or create an event loop
+        # Create a new event loop if needed
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
-            # No event loop in this thread, create a new one
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-        
-        # Special handling for search tool invocation
-        if isinstance(coro, object) and hasattr(coro, '__await__'):
-            # This is already a coroutine object
-            return loop.run_until_complete(coro)
-        elif callable(coro):
-            # This is a coroutine function, call it first
-            return loop.run_until_complete(coro())
+            
+        # Check if the loop is running
+        if loop.is_running():
+            # Already in an async context, return a future
+            return coro
         else:
-            logger.warning(f"Unknown object passed to run_async: {type(coro)}")
-            return None
+            # Run the coroutine in the event loop
+            return loop.run_until_complete(coro)
     except Exception as e:
         logger.error(f"Error in run_async: {e}")
-        # Return None instead of raising to avoid stopping the process
-        return None
+        raise
 
-def search_web(search_tool, query):
+async def search_web(tool, query):
     """
-    A syncronous wrapper for search tool invocation that properly handles async context.
+    Search the web using the MCP search_web tool.
     
     Args:
-        search_tool: The search tool to use
-        query: The search query string
+        tool (BaseTool): The search_web tool from the MCP server.
+        query (str): The search query.
         
     Returns:
-        The search results
+        Dict[str, Any]: The search results.
     """
     try:
-        result = run_async(_safe_invoke_search_tool(search_tool, query))
-        if result is None:
-            # If we got None due to an error, return a fallback
-            logger.warning(f"Search failed for query: {query}, using fallback")
-            return {
-                "warning": "Search could not be completed",
-                "query": query,
-                "results": []
-            }
-        return result
+        # Add detailed debug logging
+        logger.info(f"Searching web with query: '{query}'")
+        logger.info(f"Using tool: {tool.name} (type: {type(tool).__name__})")
+        
+        # List available methods on the tool
+        methods = [method for method in dir(tool) if not method.startswith('_')]
+        logger.info(f"Tool methods: {methods}")
+        
+        # Create input as a dictionary for JSON schema
+        tool_input = {"query": query}
+        logger.info(f"Created tool input: {tool_input}")
+        
+        # Try to use the most appropriate method
+        if hasattr(tool, 'ainvoke'):
+            logger.info("Using ainvoke method")
+            result = await tool.ainvoke(tool_input)
+            logger.info(f"Result type: {type(result).__name__}")
+            if isinstance(result, str):
+                logger.info(f"Result is a string of length {len(result)}")
+                # If result is a string, try to parse it as JSON
+                if result.strip().startswith('{'):
+                    import json
+                    try:
+                        return json.loads(result)
+                    except json.JSONDecodeError:
+                        logger.warning("Failed to parse result as JSON")
+                # Return a properly formatted dict
+                return {
+                    "query": query,
+                    "results": [
+                        {
+                            "title": "Search Result",
+                            "url": "https://example.com",
+                            "content": result[:50000] if len(result) > 50000 else result
+                        }
+                    ]
+                }
+            return result
+        elif hasattr(tool, 'arun'):
+            logger.info("Using arun method")
+            result = await tool.arun(tool_input)
+            logger.info(f"Result type: {type(result).__name__}")
+            if isinstance(result, str):
+                logger.info(f"Result is a string of length {len(result)}")
+                # Return a properly formatted dict
+                return {
+                    "query": query,
+                    "results": [
+                        {
+                            "title": "Search Result",
+                            "url": "https://example.com",
+                            "content": result[:50000] if len(result) > 50000 else result
+                        }
+                    ]
+                }
+            return result
+        elif hasattr(tool, 'invoke'):
+            logger.info("Using invoke method")
+            result = tool.invoke(tool_input)
+            logger.info(f"Result type: {type(result).__name__}")
+            if isinstance(result, str):
+                logger.info(f"Result is a string of length {len(result)}")
+                # Return a properly formatted dict
+                return {
+                    "query": query,
+                    "results": [
+                        {
+                            "title": "Search Result",
+                            "url": "https://example.com",
+                            "content": result[:50000] if len(result) > 50000 else result
+                        }
+                    ]
+                }
+            return result
+        elif hasattr(tool, 'run'):
+            logger.info("Using run method")
+            result = tool.run(tool_input)
+            logger.info(f"Result type: {type(result).__name__}")
+            if isinstance(result, str):
+                logger.info(f"Result is a string of length {len(result)}")
+                # Return a properly formatted dict
+                return {
+                    "query": query,
+                    "results": [
+                        {
+                            "title": "Search Result",
+                            "url": "https://example.com",
+                            "content": result[:50000] if len(result) > 50000 else result
+                        }
+                    ]
+                }
+            return result
+        else:
+            logger.error(f"No compatible method found on tool {tool.name}")
+            raise Exception(f"Invalid tool object: {tool} - missing run methods")
     except Exception as e:
         logger.error(f"Error in search_web: {e}")
-        # Return a minimal result on error
+        import traceback
+        logger.error(f"Stack trace: {traceback.format_exc()}")
         return {
-            "error": str(e),
+            "error": f"Error searching: {str(e)}",
             "query": query,
             "results": []
         } 

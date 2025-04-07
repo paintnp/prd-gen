@@ -5,7 +5,12 @@ Debugging utilities for the PRD generator.
 import json
 import logging
 import sys
+import os
 from typing import Dict, Any
+from datetime import datetime
+
+# Create logs directory if it doesn't exist
+os.makedirs("logs", exist_ok=True)
 
 # Configure logging
 logging.basicConfig(
@@ -19,9 +24,37 @@ logging.basicConfig(
 
 logger = logging.getLogger("prd_gen")
 
+# Setup error logging handler
+error_log_file = os.path.join("logs", f"error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+error_handler = logging.FileHandler(error_log_file)
+error_handler.setLevel(logging.ERROR)
+error_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+error_handler.setFormatter(error_formatter)
+logger.addHandler(error_handler)
+
 def setup_logging():
     """Set up logging for the application."""
     return logger
+
+def setup_error_logging():
+    """Set up error-specific logging that captures only errors in a separate file."""
+    return error_handler
+
+def log_error(error_message: str, exc_info=None):
+    """
+    Log an error message to both the main log and the dedicated error log.
+    
+    Args:
+        error_message: The error message to log
+        exc_info: Exception information (from an except block) if available
+    """
+    if exc_info:
+        logger.error(f"ERROR: {error_message}", exc_info=exc_info)
+    else:
+        logger.error(f"ERROR: {error_message}")
+    
+    # Return the path to the error log for reference
+    return error_log_file
 
 def log_mcp_client_config(client_config: Dict[str, Any]):
     """Log the MCP client configuration."""

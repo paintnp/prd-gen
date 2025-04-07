@@ -22,6 +22,8 @@ from prd_gen.agents.reviser import revise_prd
 from prd_gen.utils.config import Config
 from prd_gen.utils.mcp_client import run_async, get_mcp_tools
 from prd_gen.utils.agent_logger import setup_agent_logging, log_final_prd
+from prd_gen.utils.ui_helpers import display_search_status, print_friendly_system_error
+from prd_gen.utils.direct_search import direct_search_web
 
 # Set up logging
 logger = setup_logging()
@@ -390,6 +392,31 @@ def main():
         import traceback
         logger.error(traceback.format_exc())
         return
+
+def perform_search(query):
+    """
+    Perform a search with user-friendly error handling
+    """
+    try:
+        # Run the search
+        results = direct_search_web(query)
+        
+        # Display any status messages or errors in a user-friendly way
+        display_search_status(results)
+        
+        return results
+    except Exception as e:
+        # Handle any unexpected errors with friendly messages
+        print_friendly_system_error(
+            "Something unexpected happened during search",
+            [
+                "Check your internet connection",
+                "Verify the MCP server is running",
+                "Try a simpler search query"
+            ]
+        )
+        logger.exception("Unexpected error in search")
+        return {"error": str(e), "results": []}
 
 if __name__ == "__main__":
     main() 

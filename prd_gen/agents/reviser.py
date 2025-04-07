@@ -10,7 +10,7 @@ import json
 import os
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.tools import Tool
-from prd_gen.utils.debugging import setup_logging
+from prd_gen.utils.debugging import setup_logging, log_error
 from prd_gen.utils.openai_logger import setup_openai_logging, log_openai_request, log_openai_response
 from prd_gen.utils.agent_logger import log_revision, log_web_search  # Add web search logging
 from openai import OpenAI  # Add direct OpenAI client
@@ -177,6 +177,9 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
         
         # If the model wants to use the search tool
         if response_message.tool_calls:
+            # Add the assistant message to the conversation
+            messages.append(response_message.model_dump())
+            
             # Process each tool call
             for tool_call in response_message.tool_calls:
                 # Extract the query
@@ -187,13 +190,24 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
                     
                     logger.info(f"Searching for: {query}")
                     try:
-                        # Use the direct search implementation instead
+                        # Use the direct search implementation
                         search_result = direct_search_web(query)
                         logger.info(f"Search completed for: {query}")
                     except Exception as e:
-                        logger.error(f"Error during search, using mock results: {e}")
-                        # Fall back to mock results if direct search fails
-                        search_result = create_mock_search_results(query)
+                        error_log = log_error(f"Error during search: {e}", exc_info=True)
+                        logger.error(f"Error during search: {e} (see {error_log} for details)")
+                        # Return an error result instead of using mock results
+                        search_result = {
+                            "error": f"Live search failed: {str(e)}",
+                            "query": query,
+                            "results": [
+                                {
+                                    "title": "SEARCH ERROR - Live Search Required",
+                                    "url": "N/A",
+                                    "content": f"Live search is required but failed: {str(e)}. Please ensure the MCP server is running and properly configured."
+                                }
+                            ]
+                        }
                     
                     # Log the web search in the agent logs
                     try:
@@ -210,15 +224,24 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
                         log_web_search(query, "reviser", current_iteration)
                         logger.info(f"Logged web search: {query}")
                     except Exception as e:
-                        logger.error(f"Failed to log web search: {e}")
+                        error_log = log_error(f"Failed to log web search: {e}", exc_info=True)
+                        logger.error(f"Failed to log web search: {e} (see {error_log} for details)")
                     
                     # Add the tool response to messages
-                    messages.append(response_message.model_dump())
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "name": function_name,
                         "content": json.dumps(search_result)
+                    })
+                else:
+                    # Handle other tool types here if needed, or provide a simple response
+                    # This ensures ALL tool calls get responses
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": function_name,
+                        "content": json.dumps({"error": "Tool not implemented"})
                     })
             
             # Now generate the revised PRD with the added research
@@ -241,7 +264,8 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
         log_openai_response(revised_prd, "reviser_prd_direct")
         
     except Exception as e:
-        logger.error(f"Error with direct OpenAI client: {e}")
+        error_log = log_error(f"Error with direct OpenAI client: {e}", exc_info=True)
+        logger.error(f"Error with direct OpenAI client: {e} (see {error_log} for details)")
         logger.info("Falling back to LangChain implementation")
         
         # Fall back to LangChain
@@ -268,7 +292,8 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
             # Log the response
             log_openai_response(revised_prd, "reviser_prd_langchain")
         except Exception as e:
-            logger.error(f"Error with LangChain implementation: {e}")
+            error_log = log_error(f"Error with LangChain implementation: {e}", exc_info=True)
+            logger.error(f"Error with LangChain implementation: {e} (see {error_log} for details)")
             revised_prd = prd
     
     # Get the current iteration from the PRD content if possible
@@ -292,7 +317,8 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
         log_revision(prd, critique, revised_prd, iteration)
         logger.info(f"Revision for iteration {iteration} logged successfully")
     except Exception as e:
-        logger.error(f"Failed to log revision: {e}")
+        error_log = log_error(f"Failed to log revision: {e}", exc_info=True)
+        logger.error(f"Failed to log revision: {e} (see {error_log} for details)")
     
     return revised_prd
 

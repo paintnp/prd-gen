@@ -156,6 +156,46 @@ To use MCP:
 2. Set the `MCP_SERVER_URL` environment variable to point to your server
 3. Web search will be automatically used to enhance PRDs when available
 
+## MCP Server Connection & Error Handling
+
+The PRD Generator includes robust error handling for connections to the MCP (Model Control Protocol) server:
+
+### Connection Features:
+
+- Automatic retries (up to 3 attempts) for failed connections
+- Detailed error diagnostics for various error types
+- Special handling for TaskGroup cancel scope errors that can occur with SSE connections
+- Path correction suggestions (e.g., if `/sse` is missing from the URL)
+- Graceful recovery mechanisms to ensure consistent search operation
+
+### Error Types Detected:
+
+1. **Connection Errors**: When the server is unreachable or the connection times out
+2. **Not Found Errors (404)**: When the server endpoint doesn't exist
+3. **TaskGroup/Cancellation Errors**: Related to the async SSE connection implementation
+4. **Authentication Errors**: When credentials are invalid
+5. **Server Errors**: When the server is running but encounters internal issues
+
+### Testing:
+
+You can test the error handling with the `mcp_connect_test.py` script:
+
+```bash
+# Test with a valid server URL (default)
+python mcp_connect_test.py --url valid
+
+# Test with an invalid server URL (wrong port)
+python mcp_connect_test.py --url invalid
+
+# Test with an invalid path
+python mcp_connect_test.py --url bad-path
+
+# Test TaskGroup cancel scope error handling
+python mcp_connect_test.py --test=cancel-scope
+```
+
+The error handling ensures that even when connections fail, the application provides clear, actionable error messages rather than cryptic exceptions.
+
 ## Advanced Features
 
 ### Detailed Agent Logging
@@ -232,4 +272,52 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## User-Friendly Error Handling
+
+The PRD Generator is designed to be accessible to users without extensive programming backgrounds. It includes:
+
+### Clear Error Messages
+
+- **Non-Technical Language**: Errors are explained in plain language without technical jargon
+- **Visual Formatting**: Important messages are highlighted with visual borders
+- **Actionable Suggestions**: Each error includes specific steps to resolve the issue
+
+### Smart Search Result Management
+
+- **Automatic Truncation**: Large search results are automatically shortened to prevent token limits
+- **Content Summarization**: Individual search results are trimmed to manageable sizes
+- **Result Limiting**: The number of results is capped to prevent information overload
+
+### Examples of User-Friendly Error Messages:
+
+```
+=======================================================================
+⚠️ Your search returned too much data.
+
+Your search for 'artificial intelligence trends 2025' returned a very large 
+amount of information that exceeds what the system can process. Try:
+1. Using a more specific search query
+2. Breaking your search into smaller, focused queries
+3. Adding specific keywords to narrow the results
+=======================================================================
+```
+
+```
+=======================================================================
+⚠️ Search unavailable: Unable to connect to the search service.
+
+This could be because:
+1. The search service is not running
+2. Your internet connection is down
+3. The service address is incorrect
+
+You can continue working without search, or try again later.
+=======================================================================
+```
+
+These improvements ensure that even users without technical backgrounds can:
+- Understand what went wrong when errors occur
+- Know exactly how to fix common issues
+- Get helpful guidance on how to make better search queries 
