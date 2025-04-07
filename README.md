@@ -55,17 +55,18 @@ An AI-powered Product Requirements Document (PRD) generator that leverages machi
 To generate a new PRD, use the `main.py` script:
 
 ```bash
-python -m prd_gen.main --idea "Your product idea here" --output output/prd.md
+python -m prd_gen.main --idea "Your product idea here" --output output/prd.md --max_iterations 3
 ```
 
 **Parameters:**
 - `--idea`: Description of your product idea (required)
 - `--output`: Path to save the generated PRD (default: `output/prd.md`)
+- `--max_iterations`, `-m`: Maximum number of revision iterations (default: 3)
 
 ### Example
 
 ```bash
-python -m prd_gen.main --idea "Smart stock portfolio analyzer" --output output/stock_analyzer_prd.md
+python -m prd_gen.main --idea "Smart stock portfolio analyzer" --output output/stock_analyzer_prd.md --max_iterations 5
 ```
 
 The tool will:
@@ -88,6 +89,7 @@ The following environment variables can be set in your `.env` file:
 | `MCP_TIMEOUT` | Timeout for MCP server requests | `30` |
 | `TEMPLATES_PATH` | Path to PRD templates | `prd_gen/templates` |
 | `QUALITY_THRESHOLD` | Minimum quality threshold for PRDs | `0.8` |
+| `MAX_ITERATIONS` | Maximum number of revision iterations | `3` |
 
 ## Project Structure
 

@@ -89,6 +89,12 @@ def main():
     parser = argparse.ArgumentParser(description="Generate a PRD from a product idea")
     parser.add_argument("--idea", type=str, help="The product idea to create a PRD for", default=None)
     parser.add_argument("--output", type=str, help="The path to the output file", default=None)
+    parser.add_argument(
+        "--max_iterations", "-m",
+        type=int,
+        default=3,
+        help="Maximum number of revision iterations (default: 3)"
+    )
     args = parser.parse_args()
 
     # Input validation
@@ -117,24 +123,63 @@ def main():
 
     # Generate PRD
     try:
-        logger.info(f"Creating initial PRD for: {config.idea}")
-        prd = create_initial_prd(config.idea, tools, llm)
-        logger.info("Initial PRD created")
+        # Option 1: Use the simple one-iteration approach
+        if config.max_iterations <= 1:
+            logger.info(f"Using simple approach with single iteration")
+            logger.info(f"Creating initial PRD for: {config.idea}")
+            prd = create_initial_prd(config.idea, tools, llm)
+            logger.info("Initial PRD created")
 
-        logger.info("Critiquing PRD")
-        critique = critique_prd(prd, tools, llm)
-        logger.info("PRD critique complete")
+            logger.info("Critiquing PRD")
+            critique = critique_prd(prd, tools, llm)
+            logger.info("PRD critique complete")
 
-        logger.info("Revising PRD based on critique")
-        final_prd = revise_prd(prd, critique, tools, llm)
-        logger.info("PRD revision complete")
+            logger.info("Revising PRD based on critique")
+            final_prd = revise_prd(prd, critique, tools, llm)
+            logger.info("PRD revision complete")
+        # Option 2: Use the orchestrator for multiple iterations
+        else:
+            logger.info(f"Using orchestrated approach with up to {config.max_iterations} iterations")
+            
+            # Load full configuration from environment
+            full_config = config.load_from_env()
+            
+            # Create the PRD workflow
+            workflow = create_prd_workflow(full_config)
+            
+            # Set initial state
+            initial_state = {
+                "idea": config.idea,
+                "max_iterations": config.max_iterations,
+                "iteration": 0,
+                "done": False,
+                "initial_prd": "",
+                "critique": "",
+                "revised_prd": [],
+                "final_prd": ""
+            }
+            
+            # Run the workflow
+            logger.info("Starting PRD generation workflow")
+            for state in workflow.stream(initial_state):
+                current_node = state.get("__run_state__", {}).get("current_node")
+                logger.info(f"Completed step: {current_node}")
+            
+            # Get the final state
+            final_state = state
+            logger.info(f"Workflow completed in {final_state['iteration']} iterations")
+            
+            # Get the final PRD
+            final_prd = final_state["final_prd"]
+            logger.info("PRD generation complete")
 
         # Save the PRD to a file
         if args.output:
-            os.makedirs(os.path.dirname(args.output), exist_ok=True)
-            with open(args.output, "w") as f:
+            output_path = args.output
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            with open(output_path, "w") as f:
                 f.write(final_prd)
-            logger.info(f"PRD saved to: {args.output}")
+            logger.info(f"PRD saved to: {output_path}")
         else:
             print("\n" + "=" * 50 + "\n")
             print(final_prd)
@@ -142,6 +187,8 @@ def main():
 
     except Exception as e:
         logger.error(f"Error generating PRD: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return
 
 if __name__ == "__main__":

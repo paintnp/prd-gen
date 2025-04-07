@@ -56,16 +56,21 @@ class Config:
         self.mcp_server_url = os.environ.get("MCP_SERVER_URL", "http://localhost:9000/sse")
         self.mcp_server_name = os.environ.get("MCP_SERVER_NAME", "mcp-server")
         
+        # Set up iteration configuration
+        self.max_iterations = int(os.environ.get("MAX_ITERATIONS", "3"))
+        
         # Update with command line arguments if provided
         if args:
             self.idea = args.idea
             self.output = args.output
+            if hasattr(args, 'max_iterations') and args.max_iterations is not None:
+                self.max_iterations = args.max_iterations
         else:
             self.idea = None
             self.output = None
         
         # Log configuration
-        logger.debug(f"Configuration: model={self.model}, temperature={self.temperature}")
+        logger.debug(f"Configuration: model={self.model}, temperature={self.temperature}, max_iterations={self.max_iterations}")
         if self.idea:
             logger.debug(f"Idea: {self.idea}")
         if self.output:
@@ -119,7 +124,8 @@ class Config:
         # PRD generation configuration
         prd_config = {
             "quality_threshold": float(os.environ.get("QUALITY_THRESHOLD", "0.8")),
-            "templates_path": os.environ.get("TEMPLATES_PATH", "prd_gen/templates")
+            "templates_path": os.environ.get("TEMPLATES_PATH", "prd_gen/templates"),
+            "max_iterations": self.max_iterations
         }
         
         # Combine all configurations
