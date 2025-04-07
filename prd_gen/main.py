@@ -23,7 +23,7 @@ from prd_gen.utils.config import Config
 from prd_gen.utils.mcp_client import run_async, get_mcp_tools
 from prd_gen.utils.agent_logger import setup_agent_logging, log_final_prd
 from prd_gen.utils.ui_helpers import display_search_status, print_friendly_system_error
-from prd_gen.utils.direct_search import direct_search_web, direct_search_web_summarized
+from prd_gen.utils.direct_search import direct_search, direct_search_web, direct_search_web_summarized, create_mock_search_results
 
 # Set up logging
 logger = setup_logging()
@@ -406,8 +406,8 @@ def perform_search(query):
     Perform a search with user-friendly error handling
     """
     try:
-        # Run the search using our direct_search function that tries summarized search first
-        results = direct_search(query)
+        # Run the search using our direct_search_wrapper function
+        results = direct_search_wrapper(query)
         
         # Display any status messages or errors in a user-friendly way
         display_search_status(results)
@@ -426,9 +426,9 @@ def perform_search(query):
         logger.exception("Unexpected error in search")
         return {"error": str(e), "results": []}
 
-def direct_search(query: str) -> dict:
+def direct_search_wrapper(query: str) -> dict:
     """
-    Perform a direct search using the search_web_summarized or search_web tool.
+    Wrapper for the direct_search function that adds logging and error handling.
     
     Args:
         query: The search query
@@ -436,35 +436,26 @@ def direct_search(query: str) -> dict:
     Returns:
         dict: The search results
     """
+    logger.info(f"Performing direct search for: {query}")
+    return direct_search(query)
+
+def api_search_handler(query: str) -> dict:
+    """API handler for search."""
     try:
-        # First try using the search_web_summarized tool (preferred)
-        try:
-            logger.info(f"Attempting search with search_web_summarized for: {query}")
-            results = direct_search_web_summarized(query, "key findings")
-            logger.info("Search with search_web_summarized successful")
-            return results
-        except Exception as e:
-            logger.warning(f"Search with search_web_summarized failed: {e}, falling back to search_web")
-            
-            # Fall back to search_web if summarized version fails
-            results = direct_search_web(query)
-            return results
-    except Exception as e:
-        error_log = log_error(f"Direct search failed: {e}", exc_info=True)
-        logger.error(f"Direct search failed: {e} (see {error_log} for details)")
+        logger.info(f"API search request for: {query}")
+        results = direct_search_wrapper(query)
         
-        # Return a user-friendly error response
-        return {
-            "error": str(e),
-            "query": query,
-            "results": [
-                {
-                    "title": "Search Error",
-                    "url": "#",
-                    "content": f"Search failed: {str(e)}. Please check that the MCP server is running and properly configured."
-                }
-            ]
-        }
+        # Simple validation of results
+        if results and isinstance(results, dict) and "results" in results:
+            num_results = len(results["results"]) if isinstance(results["results"], list) else 0
+            logger.info(f"API search returned {num_results} results")
+            return results
+        else:
+            logger.warning(f"API search returned invalid results structure")
+            return {"error": "Invalid search results structure", "results": []}
+    except Exception as e:
+        logger.error(f"API search failed: {e}")
+        return {"error": str(e), "results": []}
 
 if __name__ == "__main__":
     main() 
