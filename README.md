@@ -2,6 +2,12 @@
 
 An AI-powered Product Requirements Document (PRD) generator that leverages machine learning to create, critique, and revise professional-grade PRDs with integrated web search capabilities.
 
+## Recent Improvements
+
+- **Enhanced Search Tool**: Implemented `search_web_summarized` to reduce token usage and avoid context overflow by focusing on key findings
+- **Centralized Prompts**: Created a dedicated prompts module for easier maintenance and customization of agent instructions
+- **Improved Context Management**: Better handling of search results to maintain quality while reducing token consumption
+
 ## Features
 
 - **Create PRDs**: Generate comprehensive PRDs from simple product ideas
