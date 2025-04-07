@@ -13,7 +13,7 @@ from prd_gen.utils.debugging import setup_logging
 from prd_gen.utils.openai_logger import setup_openai_logging, log_openai_request, log_openai_response
 from openai import OpenAI  # Add direct OpenAI client
 import os
-from prd_gen.utils.mcp_client import run_async
+from prd_gen.utils.mcp_client import run_async, search_web
 
 # Set up logging
 logger = setup_logging()
@@ -215,8 +215,8 @@ The PRD should be detailed, structured, and cover all aspects of the product fro
                     query = function_args.get("query")
                     
                     logger.info(f"Searching for: {query}")
-                    # Execute the search - use the run_async helper function
-                    search_result = run_async(search_tool.ainvoke({"query": query}))
+                    # Execute the search using the safer search_web function
+                    search_result = search_web(search_tool, query)
                     
                     # Add the tool response to messages
                     messages.append(response_message.model_dump())
@@ -280,7 +280,7 @@ def create_custom_search_tool() -> Optional[Tool]:
     """
     try:
         # Create a mock search function
-        def search_web(query: str) -> str:
+        def mock_search_web(query: str) -> str:
             """
             Search the web for information related to the query.
             
@@ -324,7 +324,7 @@ def create_custom_search_tool() -> Optional[Tool]:
         return Tool(
             name="search_web",
             description="Search the web for information related to the query.",
-            func=search_web
+            func=mock_search_web
         )
     except Exception as e:
         logger.error(f"Error creating custom search tool: {e}")

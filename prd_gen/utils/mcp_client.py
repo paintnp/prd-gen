@@ -168,8 +168,53 @@ async def get_mcp_tools() -> List[BaseTool]:
         # Return empty list if we get an exception
         return []
 
+async def _safe_invoke_search_tool(search_tool, query):
+    """
+    Safely invoke a search tool with proper handling of async context.
+    
+    Args:
+        search_tool: The search tool to invoke
+        query: The search query string
+        
+    Returns:
+        The search results
+    """
+    try:
+        # Create a clean isolated task for the search operation
+        if hasattr(search_tool, 'ainvoke'):
+            # For aiohttp-based MCP client tools
+            result = await search_tool.ainvoke({"query": query})
+            return result
+        elif hasattr(search_tool, 'invoke'):
+            # For synchronous tools
+            return search_tool.invoke({"query": query})
+        else:
+            # Try direct function call
+            return search_tool(query=query)
+    except Exception as e:
+        logger.error(f"Error invoking search tool: {e}")
+        # Return a minimally formatted error result
+        return {
+            "error": f"Search failed: {str(e)}",
+            "results": [
+                {
+                    "title": "Search Error",
+                    "url": "N/A",
+                    "content": f"An error occurred during search: {str(e)}. Please try a different query or proceed without search results."
+                }
+            ]
+        }
+
 def run_async(coro):
-    """Helper function to run async code in a synchronous context."""
+    """
+    Helper function to run async code in a synchronous context.
+    
+    Args:
+        coro: A coroutine or coroutine function to run
+        
+    Returns:
+        The result of running the coroutine
+    """
     try:
         # Get or create an event loop
         try:
@@ -179,8 +224,48 @@ def run_async(coro):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         
-        # Run the coroutine
-        return loop.run_until_complete(coro)
+        # Special handling for search tool invocation
+        if isinstance(coro, object) and hasattr(coro, '__await__'):
+            # This is already a coroutine object
+            return loop.run_until_complete(coro)
+        elif callable(coro):
+            # This is a coroutine function, call it first
+            return loop.run_until_complete(coro())
+        else:
+            logger.warning(f"Unknown object passed to run_async: {type(coro)}")
+            return None
     except Exception as e:
         logger.error(f"Error in run_async: {e}")
-        raise 
+        # Return None instead of raising to avoid stopping the process
+        return None
+
+def search_web(search_tool, query):
+    """
+    A syncronous wrapper for search tool invocation that properly handles async context.
+    
+    Args:
+        search_tool: The search tool to use
+        query: The search query string
+        
+    Returns:
+        The search results
+    """
+    try:
+        result = run_async(_safe_invoke_search_tool(search_tool, query))
+        if result is None:
+            # If we got None due to an error, return a fallback
+            logger.warning(f"Search failed for query: {query}, using fallback")
+            return {
+                "warning": "Search could not be completed",
+                "query": query,
+                "results": []
+            }
+        return result
+    except Exception as e:
+        logger.error(f"Error in search_web: {e}")
+        # Return a minimal result on error
+        return {
+            "error": str(e),
+            "query": query,
+            "results": []
+        } 
