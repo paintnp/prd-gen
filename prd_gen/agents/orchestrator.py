@@ -185,28 +185,66 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
     # Node 4: Finalize the PRD
     def finalizer_node(state: PRDState) -> Dict[str, Any]:
         logger.debug("Finalizing PRD")
-        latest_revision = state["revised_prd"][-1] if state["revised_prd"] else state["initial_prd"]
         
-        # Check if latest_revision is empty
-        if not latest_revision:
-            logger.error("Latest revision is empty, using initial PRD")
-            # Fall back to initial PRD if available
-            if state["initial_prd"]:
+        try:
+            # Get the latest revision or initial PRD with careful error handling
+            if "revised_prd" in state and state["revised_prd"] and len(state["revised_prd"]) > 0:
+                latest_revision = state["revised_prd"][-1]
+                logger.debug(f"Using latest revision from {len(state['revised_prd'])} revisions")
+            elif "initial_prd" in state and state["initial_prd"]:
                 latest_revision = state["initial_prd"]
+                logger.debug("No revisions available, using initial PRD")
             else:
+                logger.error("No PRD content found in state! Creating minimal content.")
                 # Create a placeholder if nothing is available
-                latest_revision = "# Smart Stock Portfolio Analyzer\n\n(This PRD could not be generated properly.)"
+                latest_revision = f"# Smart Stock Portfolio Analyzer\n\n(This PRD could not be generated properly - no content found in state)"
         
-        logger.debug(f"Final PRD length: {len(latest_revision)}")
-        logger.debug(f"Final PRD preview: {latest_revision[:500]}...")
-        logger.debug("PRD finalized successfully")
-        
-        # Make sure to preserve the iteration count
-        return {
-            "final_prd": latest_revision, 
-            "done": True,
-            "iteration": state.get("iteration", 1)  # Ensure iteration count is preserved
-        }
+            # Check if latest_revision is empty
+            if not latest_revision or len(latest_revision.strip()) < 10:  # Ensure we have at least some content
+                logger.error("Latest revision is empty or too short, creating placeholder")
+                # Fall back to initial PRD if available
+                if "initial_prd" in state and state["initial_prd"] and len(state["initial_prd"].strip()) >= 10:
+                    latest_revision = state["initial_prd"]
+                    logger.debug("Using initial PRD as fallback")
+                else:
+                    # Create a placeholder if nothing is available
+                    latest_revision = "# Smart Stock Portfolio Analyzer\n\n(This PRD could not be generated properly - content was empty)"
+                    logger.debug("Created placeholder PRD")
+            
+            # Log detailed info for debugging
+            logger.debug(f"Final PRD length: {len(latest_revision)}")
+            logger.debug(f"Final PRD preview: {latest_revision[:500]}...")
+            logger.debug("PRD finalized successfully")
+            
+            # Make sure to preserve the iteration count and include all necessary keys
+            return {
+                "final_prd": latest_revision, 
+                "done": True,
+                "iteration": state.get("iteration", 1),  # Ensure iteration count is preserved
+                # Include other keys to ensure no state is lost
+                "initial_prd": state.get("initial_prd", ""),
+                "critique": state.get("critique", ""),
+                # Include revised_prd if it exists, otherwise use an empty list
+                "revised_prd": state.get("revised_prd", [])
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in finalizer node: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            
+            # Create a placeholder PRD
+            emergency_prd = "# Smart Stock Portfolio Analyzer\n\n(This PRD could not be generated properly due to an error in finalization)"
+            
+            # Return a valid state with the emergency PRD
+            return {
+                "final_prd": emergency_prd,
+                "done": True,
+                "iteration": state.get("iteration", 1),
+                "initial_prd": state.get("initial_prd", ""),
+                "critique": state.get("critique", ""),
+                "revised_prd": state.get("revised_prd", [])
+            }
     
     # Add nodes to the graph
     workflow.add_node("creator", creator_node)
@@ -219,11 +257,42 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
         """
         Determine if we should continue with more revisions or finalize the PRD.
         """
-        if state["iteration"] >= state["max_iterations"]:
-            logger.debug(f"Max iterations reached ({state['iteration']}), finalizing PRD")
+        try:
+            # Check if state contains required keys
+            if "iteration" not in state:
+                logger.error("State missing 'iteration' key, defaulting to finalize")
+                return "finalize"
+                
+            if "max_iterations" not in state:
+                logger.error("State missing 'max_iterations' key, using default of 3")
+                max_iterations = 3
+            else:
+                max_iterations = state["max_iterations"]
+            
+            current_iteration = state["iteration"]
+            
+            # Validate that we have the necessary data to continue
+            if "revised_prd" not in state or not state["revised_prd"]:
+                logger.warning("No revised PRD available, may need to finalize")
+                # If we haven't even done one iteration, try to continue
+                if current_iteration < 1:
+                    logger.info("First iteration incomplete, continuing anyway")
+                    return "continue"
+                return "finalize"
+                
+            # Check if we've reached max iterations
+            if current_iteration >= max_iterations:
+                logger.debug(f"Max iterations reached ({current_iteration}/{max_iterations}), finalizing PRD")
+                return "finalize"
+                
+            logger.debug(f"Continuing with iteration {current_iteration + 1}/{max_iterations}")
+            return "continue"
+            
+        except Exception as e:
+            logger.error(f"Error in should_continue function: {e}")
+            logger.error(f"State contents: {state.keys()}")
+            # Default to finalizing in case of any error
             return "finalize"
-        logger.debug(f"Continuing with iteration {state['iteration'] + 1}")
-        return "continue"
     
     # Add edges to connect the nodes
     workflow.add_edge("creator", "critic")

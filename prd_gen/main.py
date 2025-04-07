@@ -161,17 +161,88 @@ def main():
             
             # Run the workflow
             logger.info("Starting PRD generation workflow")
-            for state in workflow.stream(initial_state):
-                current_node = state.get("__run_state__", {}).get("current_node")
-                logger.info(f"Completed step: {current_node}")
+            states = []  # Keep track of all states
+            current_node = None
             
-            # Get the final state
-            final_state = state
-            logger.info(f"Workflow completed in {final_state.get('iteration', 1)} iterations")
+            try:
+                for state in workflow.stream(initial_state):
+                    states.append(state)  # Store each state
+                    current_node = state.get("__run_state__", {}).get("current_node")
+                    logger.info(f"Completed step: {current_node}")
+                
+                # Find the state after the finalizer node completed (should be the last one)
+                final_state = None
+                for state in reversed(states):  # Search backwards for efficiency
+                    node = state.get("__run_state__", {}).get("current_node")
+                    if node == "finalizer":
+                        final_state = state
+                        break
+                
+                # If we didn't find a finalizer node state, use the last state
+                if final_state is None:
+                    if states:
+                        final_state = states[-1]
+                        logger.warning("Couldn't find finalizer node state, using last state")
+                    else:
+                        raise ValueError("No states were produced by the workflow")
+                
+                # Safety check for required keys
+                if "final_prd" not in final_state:
+                    logger.error(f"Final state is missing 'final_prd' key. Available keys: {list(final_state.keys())}")
+                    if "revised_prd" in final_state and final_state["revised_prd"]:
+                        # Use the latest revision as a fallback
+                        logger.warning("Using latest revision as fallback for final PRD")
+                        final_prd = final_state["revised_prd"][-1]
+                    elif "initial_prd" in final_state and final_state["initial_prd"]:
+                        # Use the initial PRD as a last-resort fallback
+                        logger.warning("Using initial PRD as fallback for final PRD")
+                        final_prd = final_state["initial_prd"]
+                    else:
+                        # Create a minimal fallback if all else fails
+                        logger.error("No PRD content found in any state! Creating minimal fallback.")
+                        final_prd = f"# PRD for: {config.idea}\n\nThis PRD could not be generated due to workflow errors."
+                else:
+                    # Get the final PRD normally
+                    final_prd = final_state["final_prd"]
+                    
+                logger.info(f"Workflow completed in {final_state.get('iteration', 1)} iterations")
+                logger.info("PRD generation complete")
             
-            # Get the final PRD
-            final_prd = final_state["final_prd"]
-            logger.info("PRD generation complete")
+            except Exception as e:
+                logger.error(f"Error during workflow execution: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                
+                # Attempt to recover any PRD content from the states we've collected
+                if states:
+                    logger.info(f"Attempting to recover PRD content from {len(states)} collected states")
+                    final_prd = None
+                    
+                    # Try to find any state with a revised_prd
+                    for state in reversed(states):
+                        if "revised_prd" in state and state["revised_prd"]:
+                            final_prd = state["revised_prd"][-1]
+                            logger.info("Recovered PRD from revised_prd in state")
+                            break
+                            
+                    # If no revised_prd, try initial_prd
+                    if not final_prd:
+                        for state in states:
+                            if "initial_prd" in state and state["initial_prd"]:
+                                final_prd = state["initial_prd"]
+                                logger.info("Recovered PRD from initial_prd in state")
+                                break
+                    
+                    # If still no PRD, create a minimal fallback
+                    if not final_prd:
+                        final_prd = f"# PRD for: {config.idea}\n\nThis PRD could not be generated due to workflow errors: {str(e)}"
+                        logger.warning("Created minimal fallback PRD")
+                else:
+                    # If no states were collected, fall back to simple approach
+                    logger.info("Falling back to simple approach as no states were collected")
+                    prd = create_initial_prd(config.idea, tools, llm)
+                    critique = critique_prd(prd, tools, llm)
+                    final_prd = revise_prd(prd, critique, tools, llm)
 
         # Save the PRD to a file
         if args.output:
