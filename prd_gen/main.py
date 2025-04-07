@@ -165,20 +165,48 @@ def main():
             current_node = None
             
             try:
+                # More detailed tracking of each state
+                node_outputs = {}  # Track outputs from each node
+                
                 for state in workflow.stream(initial_state):
                     states.append(state)  # Store each state
-                    current_node = state.get("__run_state__", {}).get("current_node")
+                    
+                    # Extract the run state info (which node just completed)
+                    run_state = state.get("__run_state__", {})
+                    current_node = run_state.get("current_node")
                     logger.info(f"Completed step: {current_node}")
+                    
+                    # Keep track of individual node outputs
+                    if current_node and current_node in state:
+                        node_outputs[current_node] = state[current_node]
+                        logger.debug(f"Captured output from node '{current_node}'")
+                    
+                    # Detailed logging about state structure
+                    if "__run_state__" in state:
+                        logger.debug(f"State run_state info: {run_state}")
+                    
+                    logger.debug(f"State contains keys: {list(state.keys())}")
                 
-                # Find the state after the finalizer node completed (should be the last one)
+                # Find the state after the finalizer node completed
                 final_state = None
-                for state in reversed(states):  # Search backwards for efficiency
-                    node = state.get("__run_state__", {}).get("current_node")
-                    if node == "finalizer":
+                
+                # First check: Look for a state with finalizer in run_state
+                for state in reversed(states):
+                    run_state = state.get("__run_state__", {})
+                    if run_state.get("current_node") == "finalizer":
                         final_state = state
+                        logger.info("Found finalizer state via run_state")
                         break
                 
-                # If we didn't find a finalizer node state, use the last state
+                # Second check: If we didn't find it that way, look for a state with 'finalizer' key
+                if final_state is None:
+                    for state in reversed(states):
+                        if "finalizer" in state:
+                            final_state = state
+                            logger.info("Found finalizer state via 'finalizer' key")
+                            break
+                
+                # Last resort: Use the last state
                 if final_state is None:
                     if states:
                         final_state = states[-1]
@@ -186,21 +214,48 @@ def main():
                     else:
                         raise ValueError("No states were produced by the workflow")
                 
-                # Safety check for required keys
-                if "final_prd" not in final_state:
+                # Enhanced diagnostic info
+                logger.debug(f"Final state type: {type(final_state).__name__}")
+                logger.debug(f"Final state keys: {list(final_state.keys())}")
+                
+                # Check for finalizer output
+                if "finalizer" in final_state and isinstance(final_state["finalizer"], dict):
+                    logger.debug(f"Finalizer output contains: {list(final_state['finalizer'].keys())}")
+                
+                # If we have finalizer node output directly, use it
+                if "finalizer" in node_outputs and isinstance(node_outputs["finalizer"], dict):
+                    if "final_prd" in node_outputs["finalizer"]:
+                        logger.info("Using final_prd from node_outputs['finalizer']")
+                        final_prd = node_outputs["finalizer"]["final_prd"]
+                # If we didn't get final_prd from node_outputs
+                elif "final_prd" not in final_state:
                     logger.error(f"Final state is missing 'final_prd' key. Available keys: {list(final_state.keys())}")
-                    if "revised_prd" in final_state and final_state["revised_prd"]:
-                        # Use the latest revision as a fallback
-                        logger.warning("Using latest revision as fallback for final PRD")
-                        final_prd = final_state["revised_prd"][-1]
-                    elif "initial_prd" in final_state and final_state["initial_prd"]:
-                        # Use the initial PRD as a last-resort fallback
-                        logger.warning("Using initial PRD as fallback for final PRD")
-                        final_prd = final_state["initial_prd"]
-                    else:
-                        # Create a minimal fallback if all else fails
-                        logger.error("No PRD content found in any state! Creating minimal fallback.")
-                        final_prd = f"# PRD for: {config.idea}\n\nThis PRD could not be generated due to workflow errors."
+                     
+                    # Check if there's a 'finalizer' key which might contain the node output
+                    if "finalizer" in final_state and isinstance(final_state["finalizer"], dict):
+                        logger.info("Found 'finalizer' key in state, attempting to extract PRD from it")
+                        finalizer_output = final_state["finalizer"]
+                        if "final_prd" in finalizer_output:
+                            logger.info("Successfully extracted final_prd from finalizer output")
+                            final_prd = finalizer_output["final_prd"]
+                        else:
+                            logger.warning(f"Finalizer output doesn't contain final_prd. Keys: {list(finalizer_output.keys())}")
+                            # Continue with regular fallback paths
+                     
+                    # Regular fallback paths
+                    if 'final_prd' not in locals():  # If we didn't set final_prd above
+                        if "revised_prd" in final_state and final_state["revised_prd"]:
+                            # Use the latest revision as a fallback
+                            logger.warning("Using latest revision as fallback for final PRD")
+                            final_prd = final_state["revised_prd"][-1]
+                        elif "initial_prd" in final_state and final_state["initial_prd"]:
+                            # Use the initial PRD as a last-resort fallback
+                            logger.warning("Using initial PRD as fallback for final PRD")
+                            final_prd = final_state["initial_prd"]
+                        else:
+                            # Create a minimal fallback if all else fails
+                            logger.error("No PRD content found in any state! Creating minimal fallback.")
+                            final_prd = f"# PRD for: {config.idea}\n\nThis PRD could not be generated due to workflow errors."
                 else:
                     # Get the final PRD normally
                     final_prd = final_state["final_prd"]

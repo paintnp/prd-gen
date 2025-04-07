@@ -185,6 +185,7 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
     # Node 4: Finalize the PRD
     def finalizer_node(state: PRDState) -> Dict[str, Any]:
         logger.debug("Finalizing PRD")
+        logger.debug(f"Incoming state to finalizer contains keys: {list(state.keys())}")
         
         try:
             # Get the latest revision or initial PRD with careful error handling
@@ -217,7 +218,7 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
             logger.debug("PRD finalized successfully")
             
             # Make sure to preserve the iteration count and include all necessary keys
-            return {
+            result = {
                 "final_prd": latest_revision, 
                 "done": True,
                 "iteration": state.get("iteration", 1),  # Ensure iteration count is preserved
@@ -227,6 +228,9 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
                 # Include revised_prd if it exists, otherwise use an empty list
                 "revised_prd": state.get("revised_prd", [])
             }
+            
+            logger.debug(f"Finalizer node returning keys: {list(result.keys())}")
+            return result
             
         except Exception as e:
             logger.error(f"Error in finalizer node: {e}")
@@ -246,11 +250,42 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
                 "revised_prd": state.get("revised_prd", [])
             }
     
+    # Node 5: Debug function to examine state structure
+    def debug_node(state: PRDState) -> Dict[str, Any]:
+        """Special node that examines state and ensures final_prd is present even in unusual state structures."""
+        logger.debug(f"Debug node examining state with keys: {list(state.keys())}")
+        
+        # If we already have a final_prd, just return the state
+        if "final_prd" in state:
+            return {}
+            
+        # Try to extract final_prd from finalizer node output if present
+        final_prd = None
+        
+        # Look for the finalizer key which might contain node output
+        if "finalizer" in state and isinstance(state["finalizer"], dict):
+            finalizer_output = state["finalizer"]
+            logger.debug(f"Found finalizer output with keys: {list(finalizer_output.keys())}")
+            
+            if "final_prd" in finalizer_output:
+                final_prd = finalizer_output["final_prd"]
+                logger.info("Successfully extracted final_prd from finalizer output")
+            else:
+                logger.warning(f"Finalizer output doesn't contain final_prd: {list(finalizer_output.keys())}")
+        
+        # If we found final_prd, return it
+        if final_prd:
+            return {"final_prd": final_prd}
+            
+        # Otherwise, don't modify the state
+        return {}
+    
     # Add nodes to the graph
     workflow.add_node("creator", creator_node)
     workflow.add_node("critic", critic_node)
     workflow.add_node("reviser", reviser_node)
     workflow.add_node("finalizer", finalizer_node)
+    workflow.add_node("debug", debug_node)
     
     # Define conditional edge routing logic
     def should_continue(state: PRDState) -> Literal["continue", "finalize"]:
@@ -305,7 +340,8 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
         }
     )
     workflow.add_edge("reviser", "critic")
-    workflow.add_edge("finalizer", END)
+    workflow.add_edge("finalizer", "debug")
+    workflow.add_edge("debug", END)
     
     # Set the entry point
     workflow.set_entry_point("creator")
