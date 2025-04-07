@@ -12,6 +12,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.tools import Tool
 from prd_gen.utils.debugging import setup_logging
 from prd_gen.utils.openai_logger import setup_openai_logging, log_openai_request, log_openai_response
+from prd_gen.utils.agent_logger import log_critique  # Import the new agent logger
 from openai import OpenAI  # Add direct OpenAI client
 from prd_gen.utils.mcp_client import run_async
 
@@ -233,6 +234,29 @@ Provide a detailed critique with specific, actionable feedback on how to improve
         except Exception as e:
             logger.error(f"Error with LangChain implementation: {e}")
             critique = "The PRD requires improvement in several areas, including more detailed market analysis and clearer technical specifications."
+    
+    # Get the current iteration from the PRD content if possible
+    iteration = 1
+    try:
+        # Simple heuristic - look for revision markers in the PRD
+        revisions = prd.lower().count("revision")
+        iterations = prd.lower().count("iteration")
+        version_count = prd.lower().count("version")
+        
+        # Use the highest count as a hint
+        revision_markers = max(revisions, iterations, version_count)
+        if revision_markers > 0:
+            iteration = revision_markers + 1
+    except Exception:
+        # Default to iteration 1 if we can't determine it
+        iteration = 1
+    
+    # Log the critique using the agent logger
+    try:
+        log_critique(prd, critique, iteration)
+        logger.info(f"Critique for iteration {iteration} logged successfully")
+    except Exception as e:
+        logger.error(f"Failed to log critique: {e}")
     
     return critique
 

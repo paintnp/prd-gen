@@ -20,7 +20,34 @@ An AI-powered Product Requirements Document (PRD) generator that leverages machi
 - OpenAI API key
 - MCP server (optional, for web search capabilities)
 
-### Setup
+### Easy Setup
+
+We provide automated installation scripts for easy setup:
+
+**For macOS/Linux:**
+```bash
+# Make the script executable (if needed)
+chmod +x install.sh
+
+# Run the installation script
+./install.sh
+```
+
+**For Windows (PowerShell):**
+```powershell
+# Run the installation script
+.\install.ps1
+```
+
+The installation scripts will:
+- Create a virtual environment
+- Install and upgrade all dependencies to the latest compatible versions
+- Create a template .env file for you to add your API keys
+- Set up the necessary directories
+
+### Manual Setup
+
+If you prefer to install manually:
 
 1. Clone the repository
    ```bash
@@ -128,6 +155,43 @@ To use MCP:
 1. Ensure the MCP server is running
 2. Set the `MCP_SERVER_URL` environment variable to point to your server
 3. Web search will be automatically used to enhance PRDs when available
+
+## Advanced Features
+
+### Detailed Agent Logging
+
+The system now provides detailed logging of agent activities in a dedicated directory structure:
+
+```
+logs/
+├── agent_logs_YYYYMMDD_HHMMSS/   # Session-specific logs
+│   ├── session_summary.md        # Overview of all iterations
+│   ├── iteration_1_critique.md   # Detailed critique for iteration 1
+│   ├── iteration_1_revision.md   # Detailed revision for iteration 1
+│   ├── iteration_2_critique.md   # Detailed critique for iteration 2
+│   ├── ...                       # Additional iteration logs
+│   └── final_prd.md              # The final PRD output
+└── openai_debug_YYYYMMDD_HHMMSS.log  # OpenAI API logs
+```
+
+These logs allow you to:
+- See detailed critiques provided for each iteration
+- Track changes made during each revision
+- Understand how the PRD evolved over multiple iterations
+- Identify areas of improvement in the initial vs. final PRD
+
+This is especially useful for:
+- Learning how to write better PRDs
+- Understanding the thought process of the agents
+- Debugging issues with PRD generation
+- Improving your initial product ideas
+
+### Auto-Upgrading Dependencies
+
+The installation scripts now automatically upgrade all dependencies to the latest compatible versions, ensuring:
+- Security patches and bug fixes are applied
+- Latest features from dependencies are available
+- Version compatibility is maintained through upper bounds
 
 ## Advanced Usage
 

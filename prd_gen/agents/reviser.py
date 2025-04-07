@@ -12,6 +12,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.tools import Tool
 from prd_gen.utils.debugging import setup_logging
 from prd_gen.utils.openai_logger import setup_openai_logging, log_openai_request, log_openai_response
+from prd_gen.utils.agent_logger import log_revision  # Import the new agent logger
 from openai import OpenAI  # Add direct OpenAI client
 from prd_gen.utils.mcp_client import run_async
 
@@ -230,6 +231,29 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
         except Exception as e:
             logger.error(f"Error with LangChain implementation: {e}")
             revised_prd = prd
+    
+    # Get the current iteration from the PRD content if possible
+    iteration = 1
+    try:
+        # Simple heuristic - look for revision markers in the PRD
+        revisions = prd.lower().count("revision")
+        iterations = prd.lower().count("iteration")
+        version_count = prd.lower().count("version")
+        
+        # Use the highest count as a hint
+        revision_markers = max(revisions, iterations, version_count)
+        if revision_markers > 0:
+            iteration = revision_markers + 1
+    except Exception:
+        # Default to iteration 1 if we can't determine it
+        iteration = 1
+    
+    # Log the revision using the agent logger
+    try:
+        log_revision(prd, critique, revised_prd, iteration)
+        logger.info(f"Revision for iteration {iteration} logged successfully")
+    except Exception as e:
+        logger.error(f"Failed to log revision: {e}")
     
     return revised_prd
 

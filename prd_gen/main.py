@@ -21,6 +21,7 @@ from prd_gen.agents.critic import critique_prd
 from prd_gen.agents.reviser import revise_prd
 from prd_gen.utils.config import Config
 from prd_gen.utils.mcp_client import run_async, get_mcp_tools
+from prd_gen.utils.agent_logger import setup_agent_logging, log_final_prd
 
 # Set up logging
 logger = setup_logging()
@@ -102,6 +103,10 @@ def main():
     if not config.idea:
         logger.error("No product idea provided. Use --idea 'Your idea' to provide one.")
         return
+        
+    # Set up agent logging
+    agent_logs_dir = setup_agent_logging()
+    logger.info(f"Agent logs will be stored in: {agent_logs_dir}")
 
     # Initialize OpenAI model
     try:
@@ -289,6 +294,13 @@ def main():
                 
                 logger.info(f"Workflow completed in {iteration} iterations")
                 logger.info("PRD generation complete")
+                
+                # Log the final PRD
+                try:
+                    log_final_prd(final_prd, iteration)
+                    logger.info("Final PRD logged successfully")
+                except Exception as e:
+                    logger.error(f"Failed to log final PRD: {e}")
             
             except Exception as e:
                 logger.error(f"Error during workflow execution: {e}")
@@ -333,10 +345,13 @@ def main():
             with open(output_path, "w") as f:
                 f.write(final_prd)
             logger.info(f"PRD saved to: {output_path}")
+            print(f"PRD saved to: {output_path}")
+            print(f"Detailed agent logs available in: {agent_logs_dir}")
         else:
             print("\n" + "=" * 50 + "\n")
             print(final_prd)
             print("\n" + "=" * 50 + "\n")
+            print(f"Detailed agent logs available in: {agent_logs_dir}")
 
     except Exception as e:
         logger.error(f"Error generating PRD: {e}")
