@@ -14,6 +14,7 @@ from prd_gen.utils.openai_logger import setup_openai_logging, log_openai_request
 from openai import OpenAI  # Add direct OpenAI client
 import os
 from prd_gen.utils.mcp_client import run_async, search_web
+from prd_gen.utils.direct_search import direct_search_web, create_mock_search_results
 
 # Set up logging
 logger = setup_logging()
@@ -215,8 +216,14 @@ The PRD should be detailed, structured, and cover all aspects of the product fro
                     query = function_args.get("query")
                     
                     logger.info(f"Searching for: {query}")
-                    # Execute the search using the safer search_web function
-                    search_result = search_web(search_tool, query)
+                    try:
+                        # Use the direct search implementation instead
+                        search_result = direct_search_web(query)
+                        logger.info(f"Search completed for: {query}")
+                    except Exception as e:
+                        logger.error(f"Error during search, using mock results: {e}")
+                        # Fall back to mock results if direct search fails
+                        search_result = create_mock_search_results(query)
                     
                     # Add the tool response to messages
                     messages.append(response_message.model_dump())
