@@ -15,11 +15,12 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from prd_gen.agents.creator import create_initial_prd, PRD_CREATOR_PROMPT
-from prd_gen.agents.critic import critique_prd, PRD_CRITIC_PROMPT
-from prd_gen.agents.reviser import revise_prd, PRD_REVISER_PROMPT
+from prd_gen.agents.creator import create_initial_prd
+from prd_gen.agents.critic import critique_prd
+from prd_gen.agents.reviser import revise_prd
 from prd_gen.utils.debugging import setup_logging, log_mcp_client_config, log_mcp_tools
 from prd_gen.utils.mcp_client import MCPToolProvider, run_async  # Import our improved MCP client
+from prd_gen.prompts.agent_prompts import CREATOR_PROMPT, CRITIC_PROMPT, REVISER_PROMPT
 
 # Set up logging
 logger = setup_logging()

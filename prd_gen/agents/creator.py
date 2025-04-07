@@ -15,80 +15,13 @@ from openai import OpenAI  # Add direct OpenAI client
 import os
 from prd_gen.utils.mcp_client import run_async, search_web
 from prd_gen.utils.direct_search import direct_search_web, create_mock_search_results, direct_search_web_summarized
+from prd_gen.prompts.agent_prompts import CREATOR_PROMPT
 
 # Set up logging
 logger = setup_logging()
 openai_logger = setup_openai_logging()
 
-# System prompt for the Creator agent
-PRD_CREATOR_PROMPT = """
-You are an expert Product Manager specializing in creating Product Requirement Documents (PRDs).
-
-Your task is to create a comprehensive PRD for a new product idea. Use the following structure:
-
-# {Product Name} - Product Requirements Document
-
-## Executive Summary
-- Brief overview of the product
-- Target audience
-- Key value proposition
-
-## Problem Statement
-- Clearly articulate the problem being solved
-- Include market research and user pain points
-- Quantify the problem if possible
-
-## Goals and Objectives
-- Define specific, measurable goals for the product
-- Outline key performance indicators (KPIs)
-- Identify success metrics
-
-## User Personas
-- Describe the primary users
-- Include demographics, behaviors, needs, and goals
-- Explain how the product addresses their needs
-
-## Product Features and Requirements
-- Detailed description of each feature
-- Prioritize features (Must have, Should have, Could have, Won't have)
-- Technical requirements
-- Performance expectations
-
-## User Journeys
-- Describe key user flows
-- Include user stories or scenarios
-
-## Design Requirements
-- Visual design guidelines
-- UX principles to follow
-- Accessibility considerations
-
-## Technical Considerations
-- Platform requirements
-- Integration needs
-- Security requirements
-- Scalability considerations
-
-## Timeline and Milestones
-- Development phases
-- Release schedule
-- Key deadlines
-
-## Success Metrics
-- How will success be measured?
-- Analytics and tracking needs
-
-## Risks and Mitigation
-- Identify potential challenges
-- Outline mitigation strategies
-
-## Appendices
-- Market research details
-- Competitor analysis
-- User research findings
-
-Use the search_web_summarized tool to gather relevant information about market trends, competitors, and best practices for this type of product. You can specify a summary focus like "key findings" or "main points" to get concise information and avoid context overflow. Be specific and provide concrete details, not generic statements.
-"""
+# System prompt comes from the prompts module now
 
 def create_initial_prd(idea: str, tools: List[Any], llm: Any) -> str:
     """
@@ -114,23 +47,7 @@ def create_initial_prd(idea: str, tools: List[Any], llm: Any) -> str:
         logger.info("No search_web_summarized tool found, proceeding without external research")
     
     # Define the system prompt
-    system_prompt = """You are an expert product manager and consultant, tasked with creating a comprehensive and detailed PRD (Product Requirements Document).
-When you receive a product idea, you should research it thoroughly and create a complete PRD.
-
-Your PRD should include the following sections:
-1. Executive Summary
-2. Problem Statement
-3. Goals and Objectives
-4. User Personas
-5. User Stories/Use Cases
-6. Product Features and Requirements (prioritized)
-7. Technical Requirements
-8. User Experience Design
-9. Implementation Timeline
-10. Success Metrics
-11. Risks and Mitigations
-12. Appendices if needed
-"""
+    system_prompt = CREATOR_PROMPT
 
     if has_search_tool:
         system_prompt += "\nYou can search for information about the market, competitors, and industry trends using the search_web_summarized tool. You can add a summary_focus parameter like 'key findings' or 'main points' to get the most relevant information while avoiding context overflow."

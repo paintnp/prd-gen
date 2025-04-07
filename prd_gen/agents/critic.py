@@ -16,54 +16,13 @@ from prd_gen.utils.agent_logger import log_critique, log_web_search  # Add web s
 from openai import OpenAI  # Add direct OpenAI client
 from prd_gen.utils.mcp_client import run_async, search_web
 from prd_gen.utils.direct_search import direct_search_web, create_mock_search_results, direct_search_web_summarized
+from prd_gen.prompts.agent_prompts import CRITIC_PROMPT
 
 # Set up logging
 logger = setup_logging()
 openai_logger = setup_openai_logging()
 
-# System prompt for the Critic agent
-PRD_CRITIC_PROMPT = """
-You are an expert Product Management Consultant specialized in critiquing Product Requirement Documents (PRDs).
-
-Your task is to analyze the provided PRD and offer constructive criticism to improve it. Focus on the following aspects:
-
-1. Completeness
-   - Are all essential sections included?
-   - Are there any missing details or ambiguities?
-   - Does the PRD provide enough information for developers to build the product?
-
-2. Clarity
-   - Is the language clear and unambiguous?
-   - Are technical terms properly explained?
-   - Would all stakeholders understand what is being proposed?
-
-3. Consistency
-   - Are there any contradictions within the document?
-   - Do the goals align with the features and requirements?
-   - Is the scope well-defined and consistent?
-
-4. Feasibility
-   - Is the timeline realistic?
-   - Are the technical considerations comprehensive?
-   - Have potential implementation challenges been addressed?
-
-5. User-Centricity
-   - Are user personas detailed and realistic?
-   - Do the proposed features solve the users' problems?
-   - Are user journeys complete and logical?
-
-6. Market Relevance
-   - Is there sufficient market research?
-   - Is the competitive landscape adequately analyzed?
-   - Does the product differentiate itself in the market?
-
-7. Measurability
-   - Are success metrics clearly defined?
-   - Are the KPIs measurable and relevant?
-   - Is there a plan for tracking and analyzing these metrics?
-
-Use the search_web_summarized tool to gather any additional information needed to provide informed criticism. You can specify a summary focus like "key findings" or "main points" to get concise information and avoid context overflow. Be specific, constructive, and actionable in your feedback. Provide examples and suggestions for improvement wherever possible.
-"""
+# System prompt comes from the prompts module now
 
 def critique_prd(prd: str, tools: List[Any], llm: Any) -> str:
     """
@@ -89,21 +48,7 @@ def critique_prd(prd: str, tools: List[Any], llm: Any) -> str:
         logger.info("No search_web_summarized tool found, proceeding without external research")
     
     # Define the system prompt
-    system_prompt = """You are an expert product management and technical consultant with expertise in critiquing PRDs.
-Your task is to provide a thorough, critical analysis of the PRD provided to you.
-
-Focus on these key areas in your critique:
-1. Market Analysis - Is the market opportunity well-defined? Are competitors analyzed?
-2. Problem Statement - Is the problem clear and compelling?
-3. User Personas - Are user personas detailed and realistic?
-4. Features and Requirements - Are they complete, clear, and prioritized correctly?
-5. Technical Feasibility - Are the technical requirements realistic?
-6. Timeline - Is the implementation timeline realistic?
-7. Success Metrics - Are there clear, measurable success metrics?
-8. Risks - Are potential risks identified with mitigation strategies?
-
-Provide specific, actionable feedback on how to improve the PRD. Be thorough but constructive in your critique.
-"""
+    system_prompt = CRITIC_PROMPT
 
     if has_search_tool:
         system_prompt += "\nYou can search for market information, competitors, and industry trends using the search_web_summarized tool to ensure accuracy. You can add a summary_focus parameter like 'key findings' or 'main points' to get the most relevant information while avoiding context overflow."

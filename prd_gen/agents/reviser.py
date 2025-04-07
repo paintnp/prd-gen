@@ -16,35 +16,13 @@ from prd_gen.utils.agent_logger import log_revision, log_web_search  # Add web s
 from openai import OpenAI  # Add direct OpenAI client
 from prd_gen.utils.mcp_client import run_async, search_web
 from prd_gen.utils.direct_search import direct_search_web, create_mock_search_results, direct_search_web_summarized
+from prd_gen.prompts.agent_prompts import REVISER_PROMPT
 
 # Set up logging
 logger = setup_logging()
 openai_logger = setup_openai_logging()
 
-# System prompt for the Reviser agent
-PRD_REVISER_PROMPT = """
-You are an expert Product Management Consultant specialized in revising and improving Product Requirement Documents (PRDs).
-
-Your task is to revise the provided PRD based on the critique it has received. Consider all feedback points and make improvements to address them. Your revised PRD should:
-
-1. Maintain or improve the structure of the original PRD
-2. Address all issues raised in the critique
-3. Enhance sections that were highlighted as lacking detail
-4. Fix inconsistencies or contradictions
-5. Improve market analysis and competitive positioning
-6. Ensure technical feasibility is properly addressed
-7. Make user personas and journeys more realistic and detailed
-8. Strengthen success metrics and measurement plans
-9. Address potential risks and provide mitigation strategies
-10. Keep the document clear, concise, and actionable
-
-- Use your expertise to make substantive improvements
-- Do NOT just make small edits or superficial changes
-- Use the search_web_summarized tool to gather information needed to address the critique. You can specify a summary focus like "key findings" or "main points" to get concise information and avoid context overflow.
-- Return the full, revised PRD, not just the changes
-
-The goal is to transform the PRD into a comprehensive, high-quality document that provides clear direction for product development.
-"""
+# System prompt comes from the prompts module now
 
 def revise_prd(prd: str, critique: str, tools: List[Any], llm: Any) -> str:
     """
@@ -71,18 +49,7 @@ def revise_prd(prd: str, critique: str, tools: List[Any], llm: Any) -> str:
         logger.info("No search_web_summarized tool found, proceeding without external research")
     
     # Define the system prompt
-    system_prompt = """You are an expert product manager and technical consultant tasked with revising a Product Requirements Document (PRD) based on critique.
-
-Your job is to improve the PRD by addressing all the feedback in the critique. You must:
-1. Maintain the original structure of the PRD
-2. Address each issue mentioned in the critique
-3. Expand sections that need more detail
-4. Add missing sections if needed
-5. Ensure technical accuracy and feasibility
-6. Keep the document professional and comprehensive
-
-Return the complete revised PRD, not just the changes. The revised document should be well-formatted, comprehensive, and ready for implementation.
-"""
+    system_prompt = REVISER_PROMPT
 
     if has_search_tool:
         system_prompt += "\nYou can search for additional market information, competitors, technical details, and industry trends using the search_web_summarized tool to enhance the PRD. You can add a summary_focus parameter like 'key findings' or 'main points' to get the most relevant information while avoiding context overflow."
