@@ -167,7 +167,7 @@ def main():
             
             # Get the final state
             final_state = state
-            logger.info(f"Workflow completed in {final_state['iteration']} iterations")
+            logger.info(f"Workflow completed in {final_state.get('iteration', 1)} iterations")
             
             # Get the final PRD
             final_prd = final_state["final_prd"]

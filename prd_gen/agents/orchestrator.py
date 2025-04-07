@@ -201,7 +201,12 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
         logger.debug(f"Final PRD preview: {latest_revision[:500]}...")
         logger.debug("PRD finalized successfully")
         
-        return {"final_prd": latest_revision, "done": True}
+        # Make sure to preserve the iteration count
+        return {
+            "final_prd": latest_revision, 
+            "done": True,
+            "iteration": state.get("iteration", 1)  # Ensure iteration count is preserved
+        }
     
     # Add nodes to the graph
     workflow.add_node("creator", creator_node)
