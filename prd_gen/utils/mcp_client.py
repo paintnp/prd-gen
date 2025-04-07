@@ -12,7 +12,7 @@ from typing import List, Optional, Any, Dict, Union
 from functools import partial
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.tools import BaseTool, tool
-from prd_gen.utils.debugging import setup_logging
+from prd_gen.utils.debugging import setup_logging, log_error
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.pydantic_v1 import BaseModel, create_model, Field
 
@@ -487,10 +487,18 @@ async def search_web_summarized(tool, query, summary_focus="key findings"):
         
         # Run the tool
         start_time = time.time()
-        logger.info(f"Starting search with tool.run({tool_input})")
+        logger.info(f"Starting search with tool.ainvoke({tool_input})")
         
-        # Run the tool
-        result = await tool.run(tool_input)
+        # Use ainvoke instead of run, since the tool requires async
+        if hasattr(tool, 'ainvoke'):
+            # Most MCP tools support ainvoke
+            result = await tool.ainvoke(tool_input)
+        elif hasattr(tool, 'arun'):
+            # Fallback to arun
+            result = await tool.arun(**tool_input)
+        else:
+            # No async methods available
+            raise NotImplementedError(f"Tool {tool.name} does not support async invocation")
         
         # Calculate and log execution time
         execution_time = time.time() - start_time

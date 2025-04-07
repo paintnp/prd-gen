@@ -681,11 +681,62 @@ def direct_search_web_summarized(query: str, summary_focus: str = "key findings"
             }
         
         # Perform the search
-        raw_results = run_async(search_web_summarized(search_tool, query, summary_focus))
+        raw_response = run_async(search_web_summarized(search_tool, query, summary_focus))
         
-        # If we have raw results, return them
-        if raw_results:
-            return raw_results
+        # Parse the response properly
+        results = None
+        
+        # If the raw response is a string, try to parse it as JSON
+        if isinstance(raw_response, str):
+            try:
+                results = json.loads(raw_response)
+                logger.info("Successfully parsed string response as JSON")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse string response as JSON: {e}")
+        elif isinstance(raw_response, dict):
+            # Handle nested MCP server response format with 'content' array
+            if 'content' in raw_response and isinstance(raw_response['content'], list):
+                logger.info("Found 'content' field in response, extracting data")
+                
+                # Look for text field containing JSON
+                for item in raw_response['content']:
+                    if 'type' in item and item['type'] == 'text' and 'text' in item:
+                        try:
+                            json_str = item['text']
+                            logger.info(f"Found JSON string in text field, length: {len(json_str)}")
+                            results = json.loads(json_str)
+                            logger.info("Successfully parsed JSON results from text field")
+                            break
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Failed to parse JSON from content field: {e}")
+            
+            # If we couldn't extract from content, use raw response
+            if not results:
+                logger.info("No JSON data found in content field, using raw response")
+                results = raw_response
+        
+        # If no structured data was found, but we have a string, make one last attempt
+        if results is None and isinstance(raw_response, str):
+            # Try to clean the string and parse again
+            try:
+                cleaned_string = raw_response.replace('\\"', '"').replace('\\n', '\n')
+                results = json.loads(cleaned_string)
+                logger.info("Successfully parsed cleaned string as JSON")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse cleaned string as JSON: {e}")
+                # Create a minimal result structure
+                results = {
+                    "query": query,
+                    "summary_focus": summary_focus,
+                    "results": [{
+                        "title": "Search Results",
+                        "content": raw_response[:8000] + "..." if len(raw_response) > 8000 else raw_response
+                    }]
+                }
+        
+        # If we have results, return them
+        if results:
+            return results
         else:
             error_message = "No results were returned from the summarized search"
             logger.error(error_message)
