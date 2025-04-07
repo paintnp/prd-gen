@@ -4,6 +4,8 @@ MCP Client utility module for connecting to MCP servers and retrieving tools.
 
 import asyncio
 import logging
+import time
+import os
 from typing import List, Optional, Any, Dict
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_core.tools import BaseTool
@@ -17,7 +19,7 @@ class MCPToolProvider:
     Utility class for connecting to MCP servers and retrieving tools.
     """
     
-    def __init__(self, server_url: str = "http://localhost:9000/sse", server_name: str = "mcp-server"):
+    def __init__(self, server_url: str = None, server_name: str = "mcp-server"):
         """
         Initialize the MCP Tool Provider.
         
@@ -25,6 +27,10 @@ class MCPToolProvider:
             server_url: URL of the MCP server's SSE endpoint.
             server_name: Name to identify this server connection.
         """
+        if server_url is None:
+            # Get URL from environment or use default
+            server_url = os.environ.get("MCP_SERVER_URL", "http://localhost:9000/sse")
+        
         self.server_url = server_url
         self.server_name = server_name
         self.client = MultiServerMCPClient()
@@ -40,13 +46,32 @@ class MCPToolProvider:
         """
         try:
             logger.info(f"Connecting to MCP server at {self.server_url}...")
-            await self.client.connect_to_server_via_sse(
-                self.server_name,
-                url=self.server_url
-            )
-            logger.info("Successfully connected to MCP server")
-            self._connected = True
-            return True
+            
+            # Try connecting multiple times in case of timing issues
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    await self.client.connect_to_server_via_sse(
+                        self.server_name,
+                        url=self.server_url
+                    )
+                    logger.info(f"Successfully connected to MCP server on attempt {attempt}")
+                    self._connected = True
+                    
+                    # Immediately fetch tools after successful connection
+                    self.tools = self.client.get_tools()
+                    logger.info(f"Retrieved {len(self.tools)} tools from MCP server: {[tool.name for tool in self.tools]}")
+                    
+                    return True
+                except Exception as e:
+                    if attempt < max_retries:
+                        logger.warning(f"Connection attempt {attempt} failed: {e}. Retrying...")
+                        # Wait a bit before retrying
+                        await asyncio.sleep(1)
+                    else:
+                        raise
+            
+            return False
         except Exception as e:
             logger.error(f"Error connecting to MCP server: {e}")
             self._connected = False
@@ -63,9 +88,24 @@ class MCPToolProvider:
             logger.warning("Not connected to MCP server. Call connect() first.")
             return []
         
+        # If we already have tools from connect() method, return them
+        if self.tools:
+            return self.tools
+        
+        # Otherwise try to fetch them
         try:
             tools = self.client.get_tools()
-            logger.info(f"Retrieved {len(tools)} tools from MCP server")
+            
+            # Log each tool for better debugging
+            tool_names = [tool.name for tool in tools]
+            logger.info(f"Retrieved {len(tools)} tools from MCP server: {tool_names}")
+            
+            if tool_names:
+                for i, tool in enumerate(tools):
+                    logger.debug(f"Tool {i+1}: {tool.name} - {tool.description}")
+            else:
+                logger.warning("No tools retrieved from MCP server")
+            
             self.tools = tools
             return tools
         except Exception as e:
@@ -83,6 +123,7 @@ class MCPToolProvider:
 
 # Singleton instance to be used across the application
 _mcp_client = None
+_mcp_tools = None  # Cache for tools
 
 async def get_mcp_tools() -> List[BaseTool]:
     """
@@ -91,14 +132,55 @@ async def get_mcp_tools() -> List[BaseTool]:
     Returns:
         List[BaseTool]: List of tools from the MCP server.
     """
-    global _mcp_client
+    global _mcp_client, _mcp_tools
     
-    if _mcp_client is None:
-        _mcp_client = MCPToolProvider()
-        await _mcp_client.connect()
+    # If we already have cached tools, return them
+    if _mcp_tools is not None and len(_mcp_tools) > 0:
+        logger.debug(f"Using cached MCP tools ({len(_mcp_tools)} tools)")
+        return _mcp_tools
     
-    return _mcp_client.get_tools()
+    try:
+        # Create a fresh client for each call to avoid connection conflicts
+        client = MCPToolProvider()
+        connected = await client.connect()
+        
+        if connected:
+            tools = client.get_tools()
+            if tools:
+                # Cache the tools for future use
+                _mcp_tools = tools
+                # Update singleton instance
+                _mcp_client = client
+                return tools
+        
+        # If we couldn't get tools this way, try to use the existing singleton
+        if _mcp_client is not None:
+            logger.info("Using existing MCP client")
+            tools = _mcp_client.get_tools()
+            if tools:
+                _mcp_tools = tools
+                return tools
+        
+        logger.warning("Failed to retrieve tools from MCP server")
+        return []
+    except Exception as e:
+        logger.error(f"Error in get_mcp_tools: {e}")
+        # Return empty list if we get an exception
+        return []
 
 def run_async(coro):
     """Helper function to run async code in a synchronous context."""
-    return asyncio.get_event_loop().run_until_complete(coro) 
+    try:
+        # Get or create an event loop
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # No event loop in this thread, create a new one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Run the coroutine
+        return loop.run_until_complete(coro)
+    except Exception as e:
+        logger.error(f"Error in run_async: {e}")
+        raise 

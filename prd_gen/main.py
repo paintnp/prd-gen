@@ -123,8 +123,40 @@ def main():
         return
 
     # Get MCP tools
-    tools = run_async(get_mcp_tools())
-    logger.info(f"Loaded {len(tools)} tools from MCP server")
+    try:
+        # First try to get tools using the get_mcp_tools function
+        tools = run_async(get_mcp_tools())
+        logger.info(f"Loaded {len(tools)} tools from MCP server using get_mcp_tools()")
+        
+        # If that doesn't work, try a direct connection
+        if not tools:
+            logger.warning("No tools found using get_mcp_tools(), trying direct connection")
+            from prd_gen.utils.mcp_client import MCPToolProvider
+            
+            # Get server URL from environment or use default
+            server_url = os.environ.get("MCP_SERVER_URL", "http://localhost:9000/sse")
+            
+            # Create a direct client
+            client = MCPToolProvider(server_url=server_url)
+            
+            # Connect and get tools
+            connected = run_async(client.connect())
+            if connected:
+                tools = client.get_tools()
+                logger.info(f"Loaded {len(tools)} tools from MCP server using direct connection")
+    except Exception as e:
+        logger.warning(f"Error connecting to MCP server: {e}")
+        logger.warning("Running without MCP tools")
+        tools = []
+    
+    # Check for search_web tool specifically
+    has_search_tool = any(tool.name == "search_web" for tool in tools)
+    if has_search_tool:
+        logger.info("✅ Found search_web tool - web search capability is available")
+    else:
+        logger.warning("⚠️ search_web tool not found - running without web search capability")
+        logger.warning("To enable web search, make sure the MCP server is running at the configured URL")
+        logger.warning("You can test the connection with: python mcp_client_test.py")
 
     # Generate PRD
     try:
