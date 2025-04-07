@@ -1,16 +1,44 @@
-# Byte-compiled / optimized / DLL files
+# Python compiled files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+prd-gen-env/
+env/
+ENV/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs and outputs
+logs/
+output/
+*.log
+
+# Environment files
+.env
+.env.local
+
+# OS specific files
+.DS_Store
+Thumbs.db
 
 # C extensions
 *.so
 
 # Distribution / packaging
 .Python
-build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -20,17 +48,8 @@ parts/
 sdist/
 var/
 wheels/
-*.egg-info/
 .installed.cfg
 *.egg
-
-# Virtual environments
-prd-gen-env/
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
 
 # Unit test / coverage reports
 htmlcov/
@@ -44,24 +63,14 @@ coverage.xml
 .hypothesis/
 
 # Logs
-logs/
-*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
 # Environment variables
-.env
-.env.local
 .env.development.local
 .env.test.local
 .env.production.local
-
-# IDE specific files
-.idea/
-.vscode/
-*.swp
-*.swo
 
 # Project specific
 output/*.md 

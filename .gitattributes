@@ -1,0 +1,31 @@
+# Set default behavior to automatically normalize line endings
+* text=auto eol=lf
+
+# Explicitly declare text files to always be normalized and converted
+# to native line endings on checkout
+*.py text
+*.md text
+*.txt text
+*.json text
+*.yml text
+*.yaml text
+*.sh text eol=lf
+*.ps1 text eol=crlf
+
+# Denote all files that are truly binary and should not be modified
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.ico binary
+
+# Python specific settings
+*.pyd binary
+*.pyo binary
+*.pyc binary
+
+# Exclude Python compiled files from diffs
+*.pyc diff=python
+*.pyo diff=python
+*.pyd diff=python 
