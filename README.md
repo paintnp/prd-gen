@@ -6,10 +6,11 @@ An AI-powered Product Requirements Document (PRD) generator that leverages machi
 
 - **Create PRDs**: Generate comprehensive PRDs from simple product ideas
 - **Critique PRDs**: Analyze PRDs and provide detailed feedback
-- **Revise PRDs**: Automatically improve PRDs based on feedback
+- **Revise PRDs**: Automatically improve PRDs based on feedback through configurable iteration cycles
 - **Web Search Integration**: Enhance PRDs with real-time market data using MCP (Multi-agent Conversational Pipeline)
 - **Customizable Templates**: Tailor the PRD format to your needs
 - **High-Quality Output**: Produce professional documentation ready for stakeholder review
+- **Configurable Iterations**: Control the quality-speed tradeoff by setting the number of revision cycles
 
 ## Installation
 
@@ -55,7 +56,7 @@ An AI-powered Product Requirements Document (PRD) generator that leverages machi
 To generate a new PRD, use the `main.py` script:
 
 ```bash
-python -m prd_gen.main --idea "Your product idea here" --output output/prd.md --max_iterations 3
+python -m prd_gen.main --idea "Your product idea here" --output output/prd.md
 ```
 
 **Parameters:**
@@ -69,11 +70,17 @@ python -m prd_gen.main --idea "Your product idea here" --output output/prd.md --
 python -m prd_gen.main --idea "Smart stock portfolio analyzer" --output output/stock_analyzer_prd.md --max_iterations 5
 ```
 
-The tool will:
-1. Create an initial PRD
-2. Critique the PRD
-3. Revise the PRD based on the critique
-4. Save the final PRD to the specified output file
+### How It Works
+
+The PRD generation process follows these steps:
+
+1. **Creation**: The system generates an initial PRD based on your product idea
+2. **Critique**: The initial PRD is analyzed and feedback is provided on areas of improvement
+3. **Revision**: The PRD is revised based on the critique
+4. **Iteration**: Steps 2-3 repeat for the number of iterations specified (default: 3)
+5. **Finalization**: The final improved PRD is saved to the specified output file
+
+Increasing the number of iterations typically improves PRD quality at the cost of longer processing time.
 
 ## Environment Variables
 
@@ -137,6 +144,12 @@ This will start the server on the default port (9000) and enable web search inte
 ### Customizing Output
 
 You can modify the templates in the `prd_gen/templates` directory to customize the format of generated PRDs.
+
+### Optimizing Iterations
+
+- **Single Iteration** (`--max_iterations 1`): Fastest generation, good for drafts or simple ideas
+- **Default (3 Iterations)**: Balanced approach suitable for most use cases
+- **5+ Iterations**: More thorough refinement for complex products or when higher quality is essential
 
 ## Troubleshooting
 
