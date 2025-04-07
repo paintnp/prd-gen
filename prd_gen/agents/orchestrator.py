@@ -19,6 +19,7 @@ from prd_gen.agents.creator import create_initial_prd, PRD_CREATOR_PROMPT
 from prd_gen.agents.critic import critique_prd, PRD_CRITIC_PROMPT
 from prd_gen.agents.reviser import revise_prd, PRD_REVISER_PROMPT
 from prd_gen.utils.debugging import setup_logging, log_mcp_client_config, log_mcp_tools
+from prd_gen.utils.mcp_client import MCPToolProvider, run_async  # Import our improved MCP client
 
 # Set up logging
 logger = setup_logging()
@@ -67,31 +68,43 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
     
     # MCP server configuration - use the working server on port 9000
     server_name = "Exa MCP Server"
-    server_url = "http://localhost:9000/sse"
-    server_transport = "sse"
-    server_timeout = 30
+    server_url = os.environ.get("MCP_SERVER_URL", "http://localhost:9000/sse")
     
-    # Define nodes
+    # Function to get MCP tools using our improved client
+    def get_tools_for_node(node_name: str):
+        """Get MCP tools using our improved client implementation."""
+        logger.debug(f"Getting tools for {node_name} using improved MCP client")
+        try:
+            # Create a client directly without the problematic context manager
+            client = MCPToolProvider(server_url=server_url, server_name=server_name)
+            # Connect to the server
+            connected = run_async(client.connect())
+            if connected:
+                # Get tools
+                tools = client.get_tools()
+                logger.info(f"Retrieved {len(tools)} tools for {node_name}")
+                
+                # Check for search_web tool
+                has_search = client.search_tool_available()
+                if has_search:
+                    logger.info(f"✅ search_web tool is available for {node_name}")
+                else:
+                    logger.warning(f"⚠️ search_web tool is NOT available for {node_name}")
+                
+                return tools
+            else:
+                logger.warning(f"Failed to connect to MCP server for {node_name}")
+                return []
+        except Exception as e:
+            logger.error(f"Error getting tools for {node_name}: {e}")
+            return []
     
     # Node 1: Create the initial PRD
     def creator_node(state: PRDState) -> Dict[str, Any]:
-        # Initialize the MCP client without using it as a context manager
-        logger.debug("Creating MCP client for creator_node")
-        client_config = {
-            server_name: {
-                "url": server_url,
-                "transport": server_transport,
-                "timeout": server_timeout
-            }
-        }
-        log_mcp_client_config(client_config)
+        logger.debug("Creating initial PRD")
         
-        client = MultiServerMCPClient(client_config)
-        
-        # Get tools and create the PRD
-        logger.debug("Getting tools from MCP client")
-        tools = client.get_tools()
-        log_mcp_tools(tools)
+        # Get tools using our improved method
+        tools = get_tools_for_node("creator_node")
         
         logger.debug(f"Creating initial PRD for idea: {state['idea']}")
         result = create_initial_prd(state["idea"], tools, llm)
@@ -110,23 +123,8 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
     
     # Node 2: Critique the PRD
     def critic_node(state: PRDState) -> Dict[str, Any]:
-        # Initialize the MCP client without using it as a context manager
-        logger.debug("Creating MCP client for critic_node")
-        client_config = {
-            server_name: {
-                "url": server_url,
-                "transport": server_transport,
-                "timeout": server_timeout
-            }
-        }
-        log_mcp_client_config(client_config)
-        
-        client = MultiServerMCPClient(client_config)
-        
-        # Get tools and critique the PRD
-        logger.debug("Getting tools from MCP client")
-        tools = client.get_tools()
-        log_mcp_tools(tools)
+        # Get tools using our improved method
+        tools = get_tools_for_node("critic_node")
         
         current_prd = state["revised_prd"][-1] if state["revised_prd"] else state["initial_prd"]
         
@@ -150,23 +148,8 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
     
     # Node 3: Revise the PRD based on critique
     def reviser_node(state: PRDState) -> Dict[str, Any]:
-        # Initialize the MCP client without using it as a context manager
-        logger.debug("Creating MCP client for reviser_node")
-        client_config = {
-            server_name: {
-                "url": server_url,
-                "transport": server_transport,
-                "timeout": server_timeout
-            }
-        }
-        log_mcp_client_config(client_config)
-        
-        client = MultiServerMCPClient(client_config)
-        
-        # Get tools and revise the PRD
-        logger.debug("Getting tools from MCP client")
-        tools = client.get_tools()
-        log_mcp_tools(tools)
+        # Get tools using our improved method
+        tools = get_tools_for_node("reviser_node")
         
         current_prd = state["revised_prd"][-1] if state["revised_prd"] else state["initial_prd"]
         critique = state["critique"]
