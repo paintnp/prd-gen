@@ -218,49 +218,76 @@ def main():
                 logger.debug(f"Final state type: {type(final_state).__name__}")
                 logger.debug(f"Final state keys: {list(final_state.keys())}")
                 
-                # Check for finalizer output
-                if "finalizer" in final_state and isinstance(final_state["finalizer"], dict):
-                    logger.debug(f"Finalizer output contains: {list(final_state['finalizer'].keys())}")
+                # Extract the final PRD - handle all possible state structures
+                final_prd = None
                 
-                # If we have finalizer node output directly, use it
-                if "finalizer" in node_outputs and isinstance(node_outputs["finalizer"], dict):
-                    if "final_prd" in node_outputs["finalizer"]:
-                        logger.info("Using final_prd from node_outputs['finalizer']")
-                        final_prd = node_outputs["finalizer"]["final_prd"]
-                # If we didn't get final_prd from node_outputs
-                elif "final_prd" not in final_state:
-                    logger.error(f"Final state is missing 'final_prd' key. Available keys: {list(final_state.keys())}")
-                     
-                    # Check if there's a 'finalizer' key which might contain the node output
-                    if "finalizer" in final_state and isinstance(final_state["finalizer"], dict):
-                        logger.info("Found 'finalizer' key in state, attempting to extract PRD from it")
-                        finalizer_output = final_state["finalizer"]
-                        if "final_prd" in finalizer_output:
-                            logger.info("Successfully extracted final_prd from finalizer output")
-                            final_prd = finalizer_output["final_prd"]
-                        else:
-                            logger.warning(f"Finalizer output doesn't contain final_prd. Keys: {list(finalizer_output.keys())}")
-                            # Continue with regular fallback paths
-                     
-                    # Regular fallback paths
-                    if 'final_prd' not in locals():  # If we didn't set final_prd above
-                        if "revised_prd" in final_state and final_state["revised_prd"]:
-                            # Use the latest revision as a fallback
-                            logger.warning("Using latest revision as fallback for final PRD")
-                            final_prd = final_state["revised_prd"][-1]
-                        elif "initial_prd" in final_state and final_state["initial_prd"]:
-                            # Use the initial PRD as a last-resort fallback
-                            logger.warning("Using initial PRD as fallback for final PRD")
-                            final_prd = final_state["initial_prd"]
-                        else:
-                            # Create a minimal fallback if all else fails
-                            logger.error("No PRD content found in any state! Creating minimal fallback.")
-                            final_prd = f"# PRD for: {config.idea}\n\nThis PRD could not be generated due to workflow errors."
-                else:
-                    # Get the final PRD normally
+                # Option 1: Direct access to final_prd in state
+                if "final_prd" in final_state:
+                    logger.info("Found final_prd directly in state")
                     final_prd = final_state["final_prd"]
+                
+                # Option 2: Nested under finalizer key
+                elif "finalizer" in final_state and isinstance(final_state["finalizer"], dict):
+                    finalizer_output = final_state["finalizer"]
+                    logger.debug(f"Finalizer output contains: {list(finalizer_output.keys())}")
                     
-                logger.info(f"Workflow completed in {final_state.get('iteration', 1)} iterations")
+                    if "final_prd" in finalizer_output:
+                        logger.info("Extracted final_prd from finalizer output")
+                        final_prd = finalizer_output["final_prd"]
+                
+                # Option 3: Nested under debug key
+                elif "debug" in final_state and isinstance(final_state["debug"], dict):
+                    debug_output = final_state["debug"]
+                    logger.debug(f"Debug output contains: {list(debug_output.keys())}")
+                    
+                    if "final_prd" in debug_output:
+                        logger.info("Extracted final_prd from debug output")
+                        final_prd = debug_output["final_prd"]
+                
+                # Option 4: Try to find in revised_prd or initial_prd
+                if final_prd is None:
+                    # Try to find revised_prd directly or nested
+                    revised_prd = None
+                    if "revised_prd" in final_state and final_state["revised_prd"]:
+                        revised_prd = final_state["revised_prd"]
+                    elif "finalizer" in final_state and isinstance(final_state["finalizer"], dict):
+                        finalizer = final_state["finalizer"]
+                        if "revised_prd" in finalizer and finalizer["revised_prd"]:
+                            revised_prd = finalizer["revised_prd"]
+                    
+                    if revised_prd:
+                        logger.warning("Using latest revision as fallback for final PRD")
+                        final_prd = revised_prd[-1]
+                    
+                    # If still no final_prd, look for initial_prd
+                    if final_prd is None:
+                        initial_prd = None
+                        if "initial_prd" in final_state:
+                            initial_prd = final_state["initial_prd"]
+                        elif "finalizer" in final_state and isinstance(final_state["finalizer"], dict):
+                            finalizer = final_state["finalizer"]
+                            if "initial_prd" in finalizer:
+                                initial_prd = finalizer["initial_prd"]
+                        
+                        if initial_prd:
+                            logger.warning("Using initial PRD as fallback for final PRD")
+                            final_prd = initial_prd
+                
+                # Last fallback if all else fails
+                if final_prd is None:
+                    logger.error("No PRD content found in any state! Creating minimal fallback.")
+                    final_prd = f"# PRD for: {config.idea}\n\nThis PRD could not be generated due to workflow errors."
+                
+                # Get the iteration count
+                iteration = 1  # Default value
+                if "iteration" in final_state:
+                    iteration = final_state["iteration"]
+                elif "finalizer" in final_state and isinstance(final_state["finalizer"], dict):
+                    finalizer = final_state["finalizer"]
+                    if "iteration" in finalizer:
+                        iteration = finalizer["iteration"]
+                
+                logger.info(f"Workflow completed in {iteration} iterations")
                 logger.info("PRD generation complete")
             
             except Exception as e:

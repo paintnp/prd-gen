@@ -255,30 +255,42 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
         """Special node that examines state and ensures final_prd is present even in unusual state structures."""
         logger.debug(f"Debug node examining state with keys: {list(state.keys())}")
         
-        # If we already have a final_prd, just return the state
+        # Create a result dictionary to return
+        result = {}
+        
+        # Check if we need to fix the state
+        need_fix = True
+        
+        # If we already have a final_prd directly in the state, we're good
         if "final_prd" in state:
-            return {}
+            logger.debug("Found final_prd directly in state")
+            need_fix = False
             
-        # Try to extract final_prd from finalizer node output if present
-        final_prd = None
+        # If we need to fix the state
+        if need_fix:
+            # Look for the finalizer key which might contain node output
+            if "finalizer" in state and isinstance(state["finalizer"], dict):
+                finalizer_output = state["finalizer"]
+                logger.debug(f"Found finalizer output with keys: {list(finalizer_output.keys())}")
+                
+                # Extract all fields from finalizer to root state
+                for key, value in finalizer_output.items():
+                    result[key] = value
+                    logger.debug(f"Extracted {key} from finalizer output")
+                
+                if "final_prd" in finalizer_output:
+                    logger.info("Successfully recovered final_prd from finalizer output")
+            
+            # If we still don't have a final_prd, try to create one from other state
+            if "final_prd" not in result:
+                if "revised_prd" in state and state["revised_prd"]:
+                    result["final_prd"] = state["revised_prd"][-1]
+                    logger.info("Created final_prd from revised_prd")
+                elif "initial_prd" in state and state["initial_prd"]:
+                    result["final_prd"] = state["initial_prd"]
+                    logger.info("Created final_prd from initial_prd")
         
-        # Look for the finalizer key which might contain node output
-        if "finalizer" in state and isinstance(state["finalizer"], dict):
-            finalizer_output = state["finalizer"]
-            logger.debug(f"Found finalizer output with keys: {list(finalizer_output.keys())}")
-            
-            if "final_prd" in finalizer_output:
-                final_prd = finalizer_output["final_prd"]
-                logger.info("Successfully extracted final_prd from finalizer output")
-            else:
-                logger.warning(f"Finalizer output doesn't contain final_prd: {list(finalizer_output.keys())}")
-        
-        # If we found final_prd, return it
-        if final_prd:
-            return {"final_prd": final_prd}
-            
-        # Otherwise, don't modify the state
-        return {}
+        return result
     
     # Add nodes to the graph
     workflow.add_node("creator", creator_node)
