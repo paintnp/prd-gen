@@ -12,7 +12,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.tools import Tool
 from prd_gen.utils.debugging import setup_logging
 from prd_gen.utils.openai_logger import setup_openai_logging, log_openai_request, log_openai_response
-from prd_gen.utils.agent_logger import log_critique  # Import the new agent logger
+from prd_gen.utils.agent_logger import log_critique, log_web_search  # Add web search logging
 from openai import OpenAI  # Add direct OpenAI client
 from prd_gen.utils.mcp_client import run_async
 
@@ -175,6 +175,23 @@ Provide a detailed critique with specific, actionable feedback on how to improve
                         logger.info(f"Searching for: {query}")
                         # Execute the search - use the run_async helper function
                         search_result = run_async(search_tool.ainvoke({"query": query}))
+                        
+                        # Log the web search in the agent logs
+                        try:
+                            # Get the current iteration (already calculated below)
+                            current_iteration = 1
+                            if "revision" in prd.lower():
+                                # Estimate iteration from the content
+                                revision_markers = prd.lower().count("revision")
+                                iteration_markers = prd.lower().count("iteration")
+                                version_markers = prd.lower().count("version")
+                                current_iteration = max(revision_markers, iteration_markers, version_markers) + 1
+                            
+                            # Log the search
+                            log_web_search(query, "critic", current_iteration)
+                            logger.info(f"Logged web search: {query}")
+                        except Exception as e:
+                            logger.error(f"Failed to log web search: {e}")
                         
                         # Add the tool response to messages
                         messages.append(response_message.model_dump())
