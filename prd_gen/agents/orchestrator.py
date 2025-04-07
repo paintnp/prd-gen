@@ -84,12 +84,21 @@ def create_prd_workflow(config: Dict[str, Any]) -> StateGraph:
                 tools = client.get_tools()
                 logger.info(f"Retrieved {len(tools)} tools for {node_name}")
                 
-                # Check for search_web tool
-                has_search = client.search_tool_available()
-                if has_search:
-                    logger.info(f"✅ search_web tool is available for {node_name}")
+                # Get list of tools for this node
+                node_tools = tools
+                
+                # Check for search_web_summarized tool
+                has_search_summarized = any(tool.name == "search_web_summarized" for tool in node_tools)
+                if has_search_summarized:
+                    logger.info(f"✅ search_web_summarized tool is available for {node_name}")
                 else:
-                    logger.warning(f"⚠️ search_web tool is NOT available for {node_name}")
+                    # Check for search_web as fallback
+                    has_search = any(tool.name == "search_web" for tool in node_tools)
+                    if has_search:
+                        logger.info(f"✅ search_web tool is available for {node_name} (fallback)")
+                        logger.warning(f"Note: search_web_summarized is preferred for better context management")
+                    else:
+                        logger.warning(f"⚠️ search tools are NOT available for {node_name}")
                 
                 return tools
             else:

@@ -15,7 +15,7 @@ from prd_gen.utils.openai_logger import setup_openai_logging, log_openai_request
 from prd_gen.utils.agent_logger import log_revision, log_web_search  # Add web search logging
 from openai import OpenAI  # Add direct OpenAI client
 from prd_gen.utils.mcp_client import run_async, search_web
-from prd_gen.utils.direct_search import direct_search_web, create_mock_search_results
+from prd_gen.utils.direct_search import direct_search_web, create_mock_search_results, direct_search_web_summarized
 
 # Set up logging
 logger = setup_logging()
@@ -23,41 +23,27 @@ openai_logger = setup_openai_logging()
 
 # System prompt for the Reviser agent
 PRD_REVISER_PROMPT = """
-You are an expert Product Manager specialized in refining Product Requirement Documents (PRDs).
+You are an expert Product Management Consultant specialized in revising and improving Product Requirement Documents (PRDs).
 
-Your task is to improve a PRD based on the critique provided. Follow these guidelines:
+Your task is to revise the provided PRD based on the critique it has received. Consider all feedback points and make improvements to address them. Your revised PRD should:
 
-1. Address all the critique points thoroughly
-   - Do not dismiss or ignore any feedback
-   - Prioritize the most critical issues first
-   - Maintain the overall structure of the PRD
+1. Maintain or improve the structure of the original PRD
+2. Address all issues raised in the critique
+3. Enhance sections that were highlighted as lacking detail
+4. Fix inconsistencies or contradictions
+5. Improve market analysis and competitive positioning
+6. Ensure technical feasibility is properly addressed
+7. Make user personas and journeys more realistic and detailed
+8. Strengthen success metrics and measurement plans
+9. Address potential risks and provide mitigation strategies
+10. Keep the document clear, concise, and actionable
 
-2. Research and validate
-   - Use the search_web tool to gather information needed to address the critique
-   - Look for market data, best practices, or technical details to strengthen weak areas
-   - Verify facts and assumptions when needed
+- Use your expertise to make substantive improvements
+- Do NOT just make small edits or superficial changes
+- Use the search_web_summarized tool to gather information needed to address the critique. You can specify a summary focus like "key findings" or "main points" to get concise information and avoid context overflow.
+- Return the full, revised PRD, not just the changes
 
-3. Improve clarity and precision
-   - Use clear, unambiguous language
-   - Provide concrete examples where helpful
-   - Ensure technical terms are properly explained
-
-4. Enhance completeness
-   - Add missing information identified in the critique
-   - Expand sections that lack detail
-   - Make sure all key stakeholder questions are answered
-
-5. Ensure consistency
-   - Align goals with features and requirements
-   - Ensure the scope is well-defined and coherent
-   - Eliminate contradictions or inconsistencies
-
-6. Consider feasibility
-   - Make timeline and resource estimates more realistic
-   - Acknowledge technical limitations and constraints
-   - Add risk mitigation strategies
-
-When making revisions, maintain the document's formatting and structure. Present the complete revised PRD, not just the changes. If the critique contradicts itself, use your best judgment to create the most effective PRD possible.
+The goal is to transform the PRD into a comprehensive, high-quality document that provides clear direction for product development.
 """
 
 def revise_prd(prd: str, critique: str, tools: List[Any], llm: Any) -> str:
@@ -76,13 +62,13 @@ def revise_prd(prd: str, critique: str, tools: List[Any], llm: Any) -> str:
     logger.info("Revising PRD based on critique")
     
     # Check if we have any search tools from MCP server
-    search_tools = [tool for tool in tools if tool.name == "search_web"]
+    search_tools = [tool for tool in tools if tool.name == "search_web_summarized"]
     has_search_tool = len(search_tools) > 0
     
     if has_search_tool:
-        logger.info("Found search_web tool from MCP server, using it for research during revision")
+        logger.info("Found search_web_summarized tool from MCP server, using it for research during revision")
     else:
-        logger.info("No search_web tool found, proceeding without external research")
+        logger.info("No search_web_summarized tool found, proceeding without external research")
     
     # Define the system prompt
     system_prompt = """You are an expert product manager and technical consultant tasked with revising a Product Requirements Document (PRD) based on critique.
@@ -99,7 +85,7 @@ Return the complete revised PRD, not just the changes. The revised document shou
 """
 
     if has_search_tool:
-        system_prompt += "\nYou can search for additional market information, competitors, technical details, and industry trends using the search_web tool to enhance the PRD."
+        system_prompt += "\nYou can search for additional market information, competitors, technical details, and industry trends using the search_web_summarized tool to enhance the PRD. You can add a summary_focus parameter like 'key findings' or 'main points' to get the most relevant information while avoiding context overflow."
     
     # Define the user prompt
     user_prompt = f"""Here is the original PRD:
@@ -131,7 +117,7 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
             functions = [{
                 "type": "function",
                 "function": {
-                    "name": "search_web",
+                    "name": "search_web_summarized",
                     "description": search_tool.description,
                     "parameters": {
                         "type": "object",
@@ -139,9 +125,13 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
                             "query": {
                                 "type": "string",
                                 "description": "The search query string"
+                            },
+                            "summary_focus": {
+                                "type": "string",
+                                "description": "The summary focus for the search"
                             }
                         },
-                        "required": ["query"]
+                        "required": ["query", "summary_focus"]
                     }
                 }
             }]
@@ -184,22 +174,25 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
             for tool_call in response_message.tool_calls:
                 # Extract the query
                 function_name = tool_call.function.name
-                if function_name == "search_web":
+                if function_name == "search_web_summarized":
                     function_args = json.loads(tool_call.function.arguments)
                     query = function_args.get("query")
+                    summary_focus = function_args.get("summary_focus", "key findings")
                     
-                    logger.info(f"Searching for: {query}")
+                    logger.info(f"Searching for: {query} with focus: {summary_focus}")
                     try:
                         # Use the direct search implementation
-                        search_result = direct_search_web(query)
+                        search_result = direct_search_web_summarized(query, summary_focus)
                         logger.info(f"Search completed for: {query}")
                     except Exception as e:
                         error_log = log_error(f"Error during search: {e}", exc_info=True)
                         logger.error(f"Error during search: {e} (see {error_log} for details)")
+                        
                         # Return an error result instead of using mock results
                         search_result = {
                             "error": f"Live search failed: {str(e)}",
                             "query": query,
+                            "summary_focus": summary_focus,
                             "results": [
                                 {
                                     "title": "SEARCH ERROR - Live Search Required",
@@ -330,51 +323,39 @@ def create_custom_search_tool() -> Optional[Tool]:
         Optional[Tool]: The custom search_web tool, or None if creation fails.
     """
     try:
-        # Create a mock search function
-        def mock_search_web(query: str) -> str:
+        # Mock search function
+        def mock_search_web(query: str, summary_focus: str = "key findings") -> str:
             """
             Search the web for information related to the query.
             
             Args:
                 query (str): The search query.
+                summary_focus (str): Focus for the summary generation.
                 
             Returns:
                 str: The search results as a formatted string.
             """
-            print(f"Using mock search_web tool in reviser with query: {query}")
+            print(f"Using mock search_web_summarized tool in reviser with query: {query}, focus: {summary_focus}")
             
             # Mock search results
             mock_results = {
                 "query": query,
+                "summary_focus": summary_focus,
                 "results": [
                     {
-                        "title": "Effective PRD Examples in Modern Product Management",
-                        "url": "https://example.com/prd-examples",
-                        "snippet": "Examples of well-crafted PRDs with clear requirements and user-centered design.",
-                        "content": "The most effective PRDs establish a clear connection between business objectives and user needs. They include visual elements like user flow diagrams, wireframes, and competitive analysis charts. Measurable success criteria are defined for each feature, with explicit alignment to strategic goals. Technical requirements are presented in a way that explains the 'why' behind each decision, not just the 'what'."
-                    },
-                    {
-                        "title": "Market Research Methodologies for Product Managers",
-                        "url": "https://example.com/market-research-methods",
-                        "snippet": "Practical approaches to gathering market data for product requirements.",
-                        "content": "Effective market research for PRDs combines both qualitative and quantitative methodologies. User interviews provide deep insights into pain points and needs, while surveys offer broader validation across larger samples. Competitive analysis should categorize competitors into direct, indirect, and potential, with feature comparison matrices. For technical products, beta testing with a representative user group can validate assumptions before full development begins."
+                        "title": "No live search available",
+                        "url": "N/A",
+                        "content": "This is a mock result since live search is not available in the current environment."
                     }
                 ]
             }
             
-            # Format results as a readable string
-            formatted_results = f"Search results for '{query}':\n\n"
-            for i, result in enumerate(mock_results["results"]):
-                formatted_results += f"{i+1}. {result['title']}\n"
-                formatted_results += f"   URL: {result['url']}\n"
-                formatted_results += f"   {result['content']}\n\n"
-                
-            return formatted_results
+            return mock_results
         
         # Create and return the tool
         return Tool(
-            name="search_web",
-            description="Search the web for information related to the query.",
+            name="search_web_summarized",
+            description="Search the web for information related to the query. You can add a summary_focus parameter like 'key findings' or 'main points' to get the most relevant information while avoiding context overflow.",
             func=mock_search_web
         )
     except Exception as e:

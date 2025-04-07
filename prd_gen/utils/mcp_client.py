@@ -119,11 +119,16 @@ class MCPToolProvider:
     
     def search_tool_available(self) -> bool:
         """
-        Check if the search_web tool is available.
+        Check if search tools are available.
         
         Returns:
-            bool: True if the search_web tool is available, False otherwise.
+            bool: True if search tools are available, False otherwise.
         """
+        # First check for search_web_summarized (preferred)
+        if any(tool.name == "search_web_summarized" for tool in self.tools):
+            return True
+            
+        # Fall back to search_web if summarized version isn't available
         return any(tool.name == "search_web" for tool in self.tools)
 
 # Cached tools for efficiency
@@ -454,3 +459,48 @@ async def search_web(tool, query):
             "query": query,
             "results": []
         } 
+
+async def search_web_summarized(tool, query, summary_focus="key findings"):
+    """
+    Search the web using the MCP search_web_summarized tool and get summarized results.
+    
+    Args:
+        tool (BaseTool): The search_web_summarized tool from the MCP server.
+        query (str): The search query.
+        summary_focus (str): Focus for summary generation (e.g., "key findings", "main points")
+        
+    Returns:
+        Dict[str, Any]: The summarized search results.
+    """
+    try:
+        # Add detailed debug logging
+        logger.info(f"Searching web with query: '{query}', summary focus: '{summary_focus}'")
+        logger.info(f"Using tool: {tool.name} (type: {type(tool).__name__})")
+        
+        # List available methods on the tool
+        methods = [method for method in dir(tool) if not method.startswith('_')]
+        logger.info(f"Tool methods: {methods}")
+        
+        # Create input as a dictionary for JSON schema
+        tool_input = {"query": query, "summary_focus": summary_focus}
+        logger.info(f"Created tool input: {tool_input}")
+        
+        # Run the tool
+        start_time = time.time()
+        logger.info(f"Starting search with tool.run({tool_input})")
+        
+        # Run the tool
+        result = await tool.run(tool_input)
+        
+        # Calculate and log execution time
+        execution_time = time.time() - start_time
+        logger.info(f"Search completed in {execution_time:.2f} seconds")
+        
+        return result
+    except Exception as e:
+        logger.error(f"Error searching web: {e}", exc_info=True)
+        error_log = log_error(f"search_web_summarized({query}, {summary_focus}) failed: {e}", exc_info=True)
+        logger.error(f"Error log created at: {error_log}")
+        
+        # Re-raise the exception to be handled by the caller
+        raise 

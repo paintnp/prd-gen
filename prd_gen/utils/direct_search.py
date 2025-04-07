@@ -11,7 +11,7 @@ import logging
 import os
 import time
 from typing import Dict, Any, List, Optional, Union
-from prd_gen.utils.mcp_client import get_mcp_tools, search_web, run_async
+from prd_gen.utils.mcp_client import get_mcp_tools, search_web, run_async, search_web_summarized
 from prd_gen.utils.debugging import setup_logging, log_error
 
 # Set up logging
@@ -635,4 +635,91 @@ def create_mock_search_results(query: str) -> Dict[str, Any]:
                 "content": "Leading apps like Duolingo, Babbel, and Rosetta Stone dominate the market with different approaches. Duolingo focuses on gamification, Babbel on conversation-based learning, and Rosetta Stone on immersive learning. Newer entrants are differentiating through specialized offerings like business language or regional dialect support."
             }
         ]
-    } 
+    }
+
+def direct_search_web_summarized(query: str, summary_focus: str = "key findings") -> Dict[str, Any]:
+    """
+    Perform a web search and get summarized results using the MCP search_web_summarized tool.
+    
+    Args:
+        query (str): The search query
+        summary_focus (str): Focus for the summary generation (e.g., "key findings", "main points")
+        
+    Returns:
+        Dict[str, Any]: The search results or error information
+    """
+    try:
+        # Log the search attempt with a user-friendly message
+        logger.info(f"Searching for: {query} with summary focus: {summary_focus}")
+        
+        # Get the tools from the MCP server
+        tools = run_async(get_mcp_tools())
+        
+        # Look for the search_web_summarized tool
+        search_tool = None
+        for tool in tools:
+            if tool.name == "search_web_summarized":
+                search_tool = tool
+                break
+                
+        if not search_tool:
+            # User-friendly error message when search tool isn't available
+            error_message = (
+                "Summarized search unavailable: The search_web_summarized tool couldn't be found.\n"
+                "Please check that:\n"
+                "1. The MCP server is running (usually on port 9000)\n"
+                "2. Your connection to the server is working\n"
+                "3. The server has the search_web_summarized tool enabled"
+            )
+            logger.error(error_message)
+            return {
+                "error": "Summarized search tool not available", 
+                "user_message": error_message,
+                "query": query,
+                "summary_focus": summary_focus,
+                "results": []
+            }
+        
+        # Perform the search
+        raw_results = run_async(search_web_summarized(search_tool, query, summary_focus))
+        
+        # If we have raw results, return them
+        if raw_results:
+            return raw_results
+        else:
+            error_message = "No results were returned from the summarized search"
+            logger.error(error_message)
+            return {
+                "error": "No results", 
+                "user_message": error_message,
+                "query": query,
+                "summary_focus": summary_focus,
+                "results": []
+            }
+            
+    except Exception as e:
+        # Log the error
+        error_log_path = log_error(
+            f"Error performing summarized web search for '{query}': {e}", 
+            exc_info=True
+        )
+        
+        # User-friendly error message
+        error_message = (
+            f"Search error: {str(e)}\n"
+            "The search could not be completed. This could be due to:\n"
+            "1. Connection issues with the MCP server\n"
+            "2. An internal error in the search service\n"
+            "See the error log for more details."
+        )
+        
+        logger.error(f"Error in summarized search: {e} (see {error_log_path} for details)")
+        
+        # Return error information
+        return {
+            "error": str(e),
+            "user_message": error_message,
+            "query": query,
+            "summary_focus": summary_focus,
+            "results": []
+        } 

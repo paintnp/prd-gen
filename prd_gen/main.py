@@ -23,7 +23,7 @@ from prd_gen.utils.config import Config
 from prd_gen.utils.mcp_client import run_async, get_mcp_tools
 from prd_gen.utils.agent_logger import setup_agent_logging, log_final_prd
 from prd_gen.utils.ui_helpers import display_search_status, print_friendly_system_error
-from prd_gen.utils.direct_search import direct_search_web
+from prd_gen.utils.direct_search import direct_search_web, direct_search_web_summarized
 
 # Set up logging
 logger = setup_logging()
@@ -151,14 +151,22 @@ def main():
         logger.warning("Running without MCP tools")
         tools = []
     
-    # Check for search_web tool specifically
-    has_search_tool = any(tool.name == "search_web" for tool in tools)
+    # Check for search tools
+    logger.info("Checking for search tools...")
+    # Check for search_web_summarized tool specifically
+    has_search_tool = any(tool.name == "search_web_summarized" for tool in tools)
+    
     if has_search_tool:
-        logger.info("✅ Found search_web tool - web search capability is available")
+        logger.info("✅ Found search_web_summarized tool - web search with summarization capability is available")
     else:
-        logger.warning("⚠️ search_web tool not found - running without web search capability")
-        logger.warning("To enable web search, make sure the MCP server is running at the configured URL")
-        logger.warning("You can test the connection with: python mcp_client_test.py")
+        logger.warning("⚠️ search_web_summarized tool not found - running without web search capability")
+        
+    # Fall back to search_web if summarized version isn't available
+    if not has_search_tool:
+        has_search_tool = any(tool.name == "search_web" for tool in tools)
+        if has_search_tool:
+            logger.info("✅ Found search_web tool (fallback) - basic web search capability is available")
+            logger.warning("Note: search_web_summarized is preferred for better context management")
 
     # Generate PRD
     try:
@@ -398,8 +406,8 @@ def perform_search(query):
     Perform a search with user-friendly error handling
     """
     try:
-        # Run the search
-        results = direct_search_web(query)
+        # Run the search using our direct_search function that tries summarized search first
+        results = direct_search(query)
         
         # Display any status messages or errors in a user-friendly way
         display_search_status(results)
@@ -417,6 +425,46 @@ def perform_search(query):
         )
         logger.exception("Unexpected error in search")
         return {"error": str(e), "results": []}
+
+def direct_search(query: str) -> dict:
+    """
+    Perform a direct search using the search_web_summarized or search_web tool.
+    
+    Args:
+        query: The search query
+        
+    Returns:
+        dict: The search results
+    """
+    try:
+        # First try using the search_web_summarized tool (preferred)
+        try:
+            logger.info(f"Attempting search with search_web_summarized for: {query}")
+            results = direct_search_web_summarized(query, "key findings")
+            logger.info("Search with search_web_summarized successful")
+            return results
+        except Exception as e:
+            logger.warning(f"Search with search_web_summarized failed: {e}, falling back to search_web")
+            
+            # Fall back to search_web if summarized version fails
+            results = direct_search_web(query)
+            return results
+    except Exception as e:
+        error_log = log_error(f"Direct search failed: {e}", exc_info=True)
+        logger.error(f"Direct search failed: {e} (see {error_log} for details)")
+        
+        # Return a user-friendly error response
+        return {
+            "error": str(e),
+            "query": query,
+            "results": [
+                {
+                    "title": "Search Error",
+                    "url": "#",
+                    "content": f"Search failed: {str(e)}. Please check that the MCP server is running and properly configured."
+                }
+            ]
+        }
 
 if __name__ == "__main__":
     main() 

@@ -14,7 +14,7 @@ from prd_gen.utils.openai_logger import setup_openai_logging, log_openai_request
 from openai import OpenAI  # Add direct OpenAI client
 import os
 from prd_gen.utils.mcp_client import run_async, search_web
-from prd_gen.utils.direct_search import direct_search_web, create_mock_search_results
+from prd_gen.utils.direct_search import direct_search_web, create_mock_search_results, direct_search_web_summarized
 
 # Set up logging
 logger = setup_logging()
@@ -87,7 +87,7 @@ Your task is to create a comprehensive PRD for a new product idea. Use the follo
 - Competitor analysis
 - User research findings
 
-Use the search_web tool to gather relevant information about market trends, competitors, and best practices for this type of product. Be specific and provide concrete details, not generic statements.
+Use the search_web_summarized tool to gather relevant information about market trends, competitors, and best practices for this type of product. You can specify a summary focus like "key findings" or "main points" to get concise information and avoid context overflow. Be specific and provide concrete details, not generic statements.
 """
 
 def create_initial_prd(idea: str, tools: List[Any], llm: Any) -> str:
@@ -105,13 +105,13 @@ def create_initial_prd(idea: str, tools: List[Any], llm: Any) -> str:
     logger.info(f"Creating initial PRD for: {idea}")
     
     # Check if we have any search tools from MCP server
-    search_tools = [tool for tool in tools if tool.name == "search_web"]
+    search_tools = [tool for tool in tools if tool.name == "search_web_summarized"]
     has_search_tool = len(search_tools) > 0
     
     if has_search_tool:
-        logger.info("Found search_web tool from MCP server, using it for research")
+        logger.info("Found search_web_summarized tool from MCP server, using it for research")
     else:
-        logger.info("No search_web tool found, proceeding without external research")
+        logger.info("No search_web_summarized tool found, proceeding without external research")
     
     # Define the system prompt
     system_prompt = """You are an expert product manager and consultant, tasked with creating a comprehensive and detailed PRD (Product Requirements Document).
@@ -133,7 +133,7 @@ Your PRD should include the following sections:
 """
 
     if has_search_tool:
-        system_prompt += "\nYou can search for information about the market, competitors, and industry trends using the search_web tool."
+        system_prompt += "\nYou can search for information about the market, competitors, and industry trends using the search_web_summarized tool. You can add a summary_focus parameter like 'key findings' or 'main points' to get the most relevant information while avoiding context overflow."
     
     # Define the user prompt
     user_prompt = f"""Please create a comprehensive PRD for the following product idea:
@@ -161,7 +161,7 @@ The PRD should be detailed, structured, and cover all aspects of the product fro
             functions = [{
                 "type": "function",
                 "function": {
-                    "name": "search_web",
+                    "name": "search_web_summarized",
                     "description": search_tool.description,
                     "parameters": {
                         "type": "object",
@@ -169,6 +169,11 @@ The PRD should be detailed, structured, and cover all aspects of the product fro
                             "query": {
                                 "type": "string",
                                 "description": "The search query string"
+                            },
+                            "summary_focus": {
+                                "type": "string",
+                                "description": "Focus area for the summary like 'key findings' or 'main points'",
+                                "default": "key findings"
                             }
                         },
                         "required": ["query"]
@@ -214,14 +219,15 @@ The PRD should be detailed, structured, and cover all aspects of the product fro
             for tool_call in response_message.tool_calls:
                 # Extract the query
                 function_name = tool_call.function.name
-                if function_name == "search_web":
+                if function_name == "search_web_summarized":
                     function_args = json.loads(tool_call.function.arguments)
                     query = function_args.get("query")
+                    summary_focus = function_args.get("summary_focus", "key findings")
                     
-                    logger.info(f"Searching for: {query}")
+                    logger.info(f"Searching for: {query} with summary focus: {summary_focus}")
                     try:
                         # Use the direct search implementation
-                        search_result = direct_search_web(query)
+                        search_result = direct_search_web_summarized(query, summary_focus)
                         logger.info(f"Search completed for: {query}")
                     except Exception as e:
                         error_log = log_error(f"Error during search: {e}", exc_info=True)
@@ -230,6 +236,7 @@ The PRD should be detailed, structured, and cover all aspects of the product fro
                         search_result = {
                             "error": f"Live search failed: {str(e)}",
                             "query": query,
+                            "summary_focus": summary_focus,
                             "results": [
                                 {
                                     "title": "SEARCH ERROR - Live Search Required",
