@@ -153,9 +153,6 @@ The PRD should be detailed, structured, and cover all aspects of the product fro
             {"role": "user", "content": user_prompt}
         ]
         
-        # Log the request
-        log_openai_request(messages, "creator_prd_direct")
-        
         # If we have search tools, use them with function calling
         if has_search_tool:
             search_tool = search_tools[0]
@@ -178,6 +175,9 @@ The PRD should be detailed, structured, and cover all aspects of the product fro
                 }
             }]
             
+            # Log the request with tools
+            log_openai_request(messages, "creator_prd_direct", functions)
+            
             # First, let the model search for information
             research_response = client.chat.completions.create(
                 model=llm.model_name if hasattr(llm, 'model_name') else "gpt-4o",
@@ -185,41 +185,10 @@ The PRD should be detailed, structured, and cover all aspects of the product fro
                 tools=functions,
                 tool_choice="auto"
             )
-            
-            # Extract and process tool calls
-            response_message = research_response.choices[0].message
-            
-            # If the model wants to use the search tool
-            if response_message.tool_calls:
-                # Process each tool call
-                for tool_call in response_message.tool_calls:
-                    # Extract the query
-                    function_name = tool_call.function.name
-                    if function_name == "search_web":
-                        function_args = json.loads(tool_call.function.arguments)
-                        query = function_args.get("query")
-                        
-                        logger.info(f"Searching for: {query}")
-                        # Execute the search - use the run_async helper function
-                        search_result = run_async(search_tool.ainvoke({"query": query}))
-                        
-                        # Add the tool response to messages
-                        messages.append(response_message.model_dump())
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": function_name,
-                            "content": json.dumps(search_result)
-                        })
-            
-            # Now generate the PRD with the added research
-            final_response = client.chat.completions.create(
-                model=llm.model_name if hasattr(llm, 'model_name') else "gpt-4o",
-                messages=messages
-            )
-            
-            prd = final_response.choices[0].message.content
         else:
+            # Log the request without tools
+            log_openai_request(messages, "creator_prd_direct")
+            
             # Without search tool, just generate the PRD directly
             response = client.chat.completions.create(
                 model=llm.model_name if hasattr(llm, 'model_name') else "gpt-4o",
@@ -227,8 +196,46 @@ The PRD should be detailed, structured, and cover all aspects of the product fro
             )
             
             prd = response.choices[0].message.content
+            
+            # Log the response and return early for the no-tools case
+            log_openai_response(prd, "creator_prd_direct")
+            return prd
         
-        # Log the response
+        # Extract and process tool calls
+        response_message = research_response.choices[0].message
+        
+        # If the model wants to use the search tool
+        if response_message.tool_calls:
+            # Process each tool call
+            for tool_call in response_message.tool_calls:
+                # Extract the query
+                function_name = tool_call.function.name
+                if function_name == "search_web":
+                    function_args = json.loads(tool_call.function.arguments)
+                    query = function_args.get("query")
+                    
+                    logger.info(f"Searching for: {query}")
+                    # Execute the search - use the run_async helper function
+                    search_result = run_async(search_tool.ainvoke({"query": query}))
+                    
+                    # Add the tool response to messages
+                    messages.append(response_message.model_dump())
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": function_name,
+                        "content": json.dumps(search_result)
+                    })
+        
+        # Now generate the PRD with the added research
+        final_response = client.chat.completions.create(
+            model=llm.model_name if hasattr(llm, 'model_name') else "gpt-4o",
+            messages=messages
+        )
+        
+        prd = final_response.choices[0].message.content
+        
+        # Log the response for the case with tools
         log_openai_response(prd, "creator_prd_direct")
         
     except Exception as e:

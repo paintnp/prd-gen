@@ -123,9 +123,6 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
             {"role": "user", "content": user_prompt}
         ]
         
-        # Log the request
-        log_openai_request(messages, "reviser_prd_direct")
-        
         # If we have search tools, use them with function calling
         if has_search_tool:
             search_tool = search_tools[0]
@@ -148,6 +145,9 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
                 }
             }]
             
+            # Log the request with tools
+            log_openai_request(messages, "reviser_prd_direct", functions)
+            
             # Allow the model to search for additional information
             research_response = client.chat.completions.create(
                 model=llm.model_name if hasattr(llm, 'model_name') else "gpt-4o",
@@ -155,49 +155,64 @@ Please revise the PRD to address all the issues mentioned in the critique. Provi
                 tools=functions,
                 tool_choice="auto"
             )
+        else:
+            # Log the request without tools
+            log_openai_request(messages, "reviser_prd_direct")
             
-            # Extract and process tool calls
-            response_message = research_response.choices[0].message
+            # Without search tool, just generate the revised PRD directly
+            response = client.chat.completions.create(
+                model=llm.model_name if hasattr(llm, 'model_name') else "gpt-4o",
+                messages=messages
+            )
             
-            # If the model wants to use the search tool
-            if response_message.tool_calls:
-                # Process each tool call
-                for tool_call in response_message.tool_calls:
-                    # Extract the query
-                    function_name = tool_call.function.name
-                    if function_name == "search_web":
-                        function_args = json.loads(tool_call.function.arguments)
-                        query = function_args.get("query")
+            revised_prd = response.choices[0].message.content
+            
+            # Log the response and return early for the no-tools case
+            log_openai_response(revised_prd, "reviser_prd_direct")
+            return revised_prd
+
+        # Extract and process tool calls
+        response_message = research_response.choices[0].message
+        
+        # If the model wants to use the search tool
+        if response_message.tool_calls:
+            # Process each tool call
+            for tool_call in response_message.tool_calls:
+                # Extract the query
+                function_name = tool_call.function.name
+                if function_name == "search_web":
+                    function_args = json.loads(tool_call.function.arguments)
+                    query = function_args.get("query")
+                    
+                    logger.info(f"Searching for: {query}")
+                    # Execute the search - use the run_async helper function
+                    search_result = run_async(search_tool.ainvoke({"query": query}))
+                    
+                    # Log the web search in the agent logs
+                    try:
+                        # Get the current iteration (already calculated below)
+                        current_iteration = 1
+                        if "revision" in prd.lower():
+                            # Estimate iteration from the content
+                            revision_markers = prd.lower().count("revision")
+                            iteration_markers = prd.lower().count("iteration")
+                            version_markers = prd.lower().count("version")
+                            current_iteration = max(revision_markers, iteration_markers, version_markers) + 1
                         
-                        logger.info(f"Searching for: {query}")
-                        # Execute the search - use the run_async helper function
-                        search_result = run_async(search_tool.ainvoke({"query": query}))
-                        
-                        # Log the web search in the agent logs
-                        try:
-                            # Get the current iteration (already calculated below)
-                            current_iteration = 1
-                            if "revision" in prd.lower():
-                                # Estimate iteration from the content
-                                revision_markers = prd.lower().count("revision")
-                                iteration_markers = prd.lower().count("iteration")
-                                version_markers = prd.lower().count("version")
-                                current_iteration = max(revision_markers, iteration_markers, version_markers) + 1
-                            
-                            # Log the search
-                            log_web_search(query, "reviser", current_iteration)
-                            logger.info(f"Logged web search: {query}")
-                        except Exception as e:
-                            logger.error(f"Failed to log web search: {e}")
-                        
-                        # Add the tool response to messages
-                        messages.append(response_message.model_dump())
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "name": function_name,
-                            "content": json.dumps(search_result)
-                        })
+                        # Log the search
+                        log_web_search(query, "reviser", current_iteration)
+                        logger.info(f"Logged web search: {query}")
+                    except Exception as e:
+                        logger.error(f"Failed to log web search: {e}")
+                    
+                    # Add the tool response to messages
+                    messages.append(response_message.model_dump())
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": function_name,
+                        "content": json.dumps(search_result)
+                    })
             
             # Now generate the revised PRD with the added research
             final_response = client.chat.completions.create(

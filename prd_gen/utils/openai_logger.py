@@ -86,6 +86,30 @@ def log_openai_request(messages: Union[List[Dict[str, Any]], List[str], str], mo
             "has_tools": tools is not None and len(tools) > 0
         }
     
+    # Add tool details if available
+    if tools is not None and len(tools) > 0:
+        # Get basic tool info without the full schema details
+        tool_info = []
+        for tool in tools:
+            # Handle different types of tool objects
+            if isinstance(tool, dict) and "function" in tool:
+                # OpenAI native tool format
+                tool_info.append({
+                    "name": tool.get("function", {}).get("name", "unknown"),
+                    "type": tool.get("type", "function")
+                })
+            elif hasattr(tool, "name") and hasattr(tool, "description"):
+                # LangChain tool format
+                tool_info.append({
+                    "name": tool.name,
+                    "description": tool.description[:50] + "..." if len(tool.description) > 50 else tool.description
+                })
+            else:
+                # Unknown tool format
+                tool_info.append({"name": str(tool)[:30]})
+                
+        log_content["tools"] = tool_info
+    
     try:
         logger.debug(f"REQUEST: {json.dumps(log_content, indent=2)}")
     except Exception as e:
