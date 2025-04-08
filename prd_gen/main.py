@@ -23,7 +23,7 @@ from prd_gen.utils.config import Config
 from prd_gen.utils.mcp_client import run_async, get_mcp_tools
 from prd_gen.utils.agent_logger import setup_agent_logging, log_final_prd
 from prd_gen.utils.ui_helpers import display_search_status, print_friendly_system_error
-from prd_gen.utils.direct_search import direct_search, direct_search_web, direct_search_web_summarized, create_mock_search_results
+from prd_gen.utils.direct_search import direct_search, direct_search_web, direct_search_web_summarized, create_mock_search_results, get_direct_search_client
 
 # Set up logging
 logger = setup_logging()
@@ -108,7 +108,14 @@ def main():
         
     # Set up agent logging
     agent_logs_dir = setup_agent_logging()
-    logger.info(f"Agent logs will be stored in: {agent_logs_dir}")
+    logger.info(f"Agent logs will be saved to: {agent_logs_dir}")
+    
+    # Print environment diagnostics
+    max_iterations = os.environ.get("MAX_ITERATIONS", "unknown")
+    logger.info(f"⚠️ MAX_ITERATIONS environment variable set to: {max_iterations}")
+    
+    # Initialize search system
+    direct_search_client = get_direct_search_client()
 
     # Initialize OpenAI model
     try:
@@ -214,6 +221,7 @@ def main():
             try:
                 # More detailed tracking of each state
                 node_outputs = {}  # Track outputs from each node
+                iteration_history = []  # Track iterations explicitly
                 
                 for state in workflow.stream(initial_state):
                     states.append(state)  # Store each state
@@ -221,6 +229,12 @@ def main():
                     # Extract the run state info (which node just completed)
                     run_state = state.get("__run_state__", {})
                     current_node = run_state.get("current_node")
+                    
+                    # Track iteration value changes
+                    current_iteration = state.get("iteration", "unknown")
+                    iteration_history.append((current_node, current_iteration))
+                    logger.info(f"After {current_node} node: iteration = {current_iteration}")
+                    
                     logger.info(f"Completed step: {current_node}")
                     
                     # Keep track of individual node outputs
@@ -233,6 +247,9 @@ def main():
                         logger.debug(f"State run_state info: {run_state}")
                     
                     logger.debug(f"State contains keys: {list(state.keys())}")
+                
+                # Log iteration history for debugging
+                logger.info(f"Iteration history: {iteration_history}")
                 
                 # Find the state after the finalizer node completed
                 final_state = None

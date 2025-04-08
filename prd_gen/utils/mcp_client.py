@@ -21,100 +21,81 @@ logger = setup_logging()
 
 class MCPToolProvider:
     """
-    Utility class for connecting to MCP servers and retrieving tools.
+    MCP Tool Provider
+    
+    This class is a wrapper for the MCP client to simplify interactions with the MCP server.
+    
+    Args:
+        server_url: The URL of the MCP server. Default: http://localhost:9000/sse
+        server_name: The name of the MCP server. Default: Exa MCP Server
     """
     
-    def __init__(self, server_url: str = None, server_name: str = "mcp-server"):
-        """
-        Initialize the MCP Tool Provider.
-        
-        Args:
-            server_url: URL of the MCP server's SSE endpoint.
-            server_name: Name to identify this server connection.
-        """
-        if server_url is None:
-            # Get URL from environment or use default
-            server_url = os.environ.get("MCP_SERVER_URL", "http://localhost:9000/sse")
-        
-        self.server_url = server_url
-        self.server_name = server_name
-        self.client = MultiServerMCPClient()
-        self.tools = []
-        self._connected = False
+    def __init__(self, server_url: Optional[str] = None, server_name: Optional[str] = None):
+        """Initialize the MCP Tool Provider."""
+        self.server_url = server_url or os.environ.get("MCP_SERVER_URL", "http://localhost:9000/sse")
+        self.server_name = server_name or os.environ.get("MCP_SERVER_NAME", "Exa MCP Server")
+        self.client = None
+        self.connected = False
         
     async def connect(self) -> bool:
         """
         Connect to the MCP server.
         
         Returns:
-            bool: True if connection was successful, False otherwise.
+            bool: True if connected, False otherwise
         """
         try:
-            logger.info(f"Connecting to MCP server at {self.server_url}...")
-            
-            # Try connecting multiple times in case of timing issues
-            max_retries = 3
-            for attempt in range(1, max_retries + 1):
-                try:
-                    await self.client.connect_to_server_via_sse(
-                        self.server_name,
-                        url=self.server_url
-                    )
-                    logger.info(f"Successfully connected to MCP server on attempt {attempt}")
-                    self._connected = True
-                    
-                    # Immediately fetch tools after successful connection
-                    self.tools = self.client.get_tools()
-                    logger.info(f"Retrieved {len(self.tools)} tools from MCP server: {[tool.name for tool in self.tools]}")
-                    
-                    return True
-                except Exception as e:
-                    if attempt < max_retries:
-                        logger.warning(f"Connection attempt {attempt} failed: {e}. Retrying...")
-                        # Wait a bit before retrying
-                        await asyncio.sleep(1)
-                    else:
-                        raise
-            
-            return False
+            # Create a client
+            self.client = MultiServerMCPClient()
+            # Connect to the server
+            await self.client.connect_to_server_via_sse(self.server_name, url=self.server_url)
+            self.connected = True
+            return True
         except Exception as e:
             logger.error(f"Error connecting to MCP server: {e}")
-            self._connected = False
             return False
-    
-    def get_tools(self) -> List[BaseTool]:
+            
+    async def disconnect(self) -> bool:
         """
-        Get all available tools from the MCP server.
+        Disconnect from the MCP server.
         
         Returns:
-            List[BaseTool]: List of LangChain tools from the MCP server.
+            bool: True if disconnected successfully, False otherwise
         """
-        if not self._connected:
+        if self.client and self.connected:
+            try:
+                # Properly close the client connection
+                logger.debug("Disconnecting from MCP server")
+                await self.client.disconnect_from_server(self.server_name)
+                self.connected = False
+                return True
+            except Exception as e:
+                logger.error(f"Error disconnecting from MCP server: {e}")
+                return False
+        return True  # Already disconnected
+        
+    def get_tools(self) -> List[BaseTool]:
+        """
+        Get the list of tools from the MCP server.
+        
+        Returns:
+            List[BaseTool]: The list of tools
+        """
+        if not self.connected:
             logger.warning("Not connected to MCP server. Call connect() first.")
             return []
         
-        # If we already have tools from connect() method, return them
-        if self.tools:
-            return self.tools
-        
-        # Otherwise try to fetch them
+        # Try to fetch the tools from the client
         try:
             tools = self.client.get_tools()
             
-            # Log each tool for better debugging
-            tool_names = [tool.name for tool in tools]
-            logger.info(f"Retrieved {len(tools)} tools from MCP server: {tool_names}")
-            
-            if tool_names:
-                for i, tool in enumerate(tools):
-                    logger.debug(f"Tool {i+1}: {tool.name} - {tool.description}")
-            else:
+            # Log some diagnostic info if tools is empty
+            if not tools:
                 logger.warning("No tools retrieved from MCP server")
             
-            self.tools = tools
             return tools
         except Exception as e:
-            logger.error(f"Error retrieving tools from MCP server: {e}")
+            logger.error(f"Error getting tools from MCP server: {e}")
             return []
     
     def search_tool_available(self) -> bool:
@@ -125,11 +106,11 @@ class MCPToolProvider:
             bool: True if search tools are available, False otherwise.
         """
         # First check for search_web_summarized (preferred)
-        if any(tool.name == "search_web_summarized" for tool in self.tools):
+        if any(tool.name == "search_web_summarized" for tool in self.client.tools):
             return True
             
         # Fall back to search_web if summarized version isn't available
-        return any(tool.name == "search_web" for tool in self.tools)
+        return any(tool.name == "search_web" for tool in self.client.tools)
 
 # Cached tools for efficiency
 _mcp_tools = None  # Cache for tools
@@ -232,22 +213,43 @@ async def create_sse_connection(url=None):
         logger.error(f"Error creating MCP client: {e}")
         raise Exception(f"Error creating MCP client: {e}") from e
 
-async def get_mcp_tools():
+async def get_mcp_tools(force_new_connection=False):
     """
-    Get tools from the MCP server. Uses caching to avoid redundant connections.
+    Get the list of available tools from the MCP server.
     
+    Args:
+        force_new_connection (bool): Whether to force a new connection even if cached tools exist
+        
     Returns:
-        List[BaseTool]: The tools available from the MCP server
+        List[Tool]: The list of tools
     """
     global _mcp_tools, _mcp_client, _mcp_session_id
     
-    # Check if we should use a fresh connection
-    force_new = os.environ.get("MCP_FORCE_NEW_CONNECTION", "").lower() in ("true", "1", "yes")
-    
-    # If we already have cached tools and we're not forcing a new connection, return them
-    if _mcp_tools is not None and len(_mcp_tools) > 0 and not force_new:
-        logger.debug(f"Using cached MCP tools ({len(_mcp_tools)} tools)")
+    # Return cached tools if they exist and we're not forcing a new connection
+    if _mcp_tools and not force_new_connection:
+        logger.debug("Using cached MCP tools")
         return _mcp_tools
+    
+    # Create new MCP client if needed or if forcing a new connection
+    if _mcp_client is None or force_new_connection:
+        server_url = os.environ.get("MCP_SERVER_URL", "http://localhost:9000/sse")
+        server_name = os.environ.get("MCP_SERVER_NAME", "Exa MCP Server")
+        
+        # If forcing a new connection and client exists, clean up old connection
+        if force_new_connection and _mcp_client is not None:
+            try:
+                # Close and cleanup old client connection
+                logger.info("Cleaning up previous MCP client connection")
+                await _mcp_client.disconnect()
+            except Exception as e:
+                # Don't let cleanup errors stop us from creating a new connection
+                logger.warning(f"Error cleaning up old MCP client: {e}")
+        
+        # Create a new client
+        _mcp_client = MCPToolProvider(server_url=server_url, server_name=server_name)
+        
+    # The MAX_RETRIES to connect to the MCP server
+    MAX_RETRIES = 3
     
     try:
         # Try to use the connection function

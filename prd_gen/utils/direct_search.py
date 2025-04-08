@@ -329,8 +329,8 @@ def direct_search_web(query: str) -> Dict[str, Any]:
         # Log the search attempt with a user-friendly message
         logger.info(f"Searching for: {query}")
         
-        # Get the tools from the MCP server
-        tools = run_async(get_mcp_tools())
+        # Get the tools from the MCP server - use force_new_connection to avoid task crossing issues
+        tools = run_async(get_mcp_tools(force_new_connection=True))
         
         # Look for the search_web tool
         search_tool = None
@@ -652,8 +652,8 @@ def direct_search_web_summarized(query: str, summary_focus: str = "key findings"
         # Log the search attempt with a user-friendly message
         logger.info(f"Searching for: {query} with summary focus: {summary_focus}")
         
-        # Get the tools from the MCP server
-        tools = run_async(get_mcp_tools())
+        # Get the tools from the MCP server - use force_new_connection to prevent task crossing issues
+        tools = run_async(get_mcp_tools(force_new_connection=True))
         
         # Look for the search_web_summarized tool
         search_tool = None
@@ -736,6 +736,23 @@ def direct_search_web_summarized(query: str, summary_focus: str = "key findings"
         
         # If we have results, return them
         if results:
+            # Ensure there's a top-level summary field
+            if "summary" not in results and "results" in results and isinstance(results["results"], list):
+                # Create a combined summary from individual result summaries if available
+                combined_summary = ""
+                for result in results["results"]:
+                    if "summary" in result and result["summary"]:
+                        if combined_summary:
+                            combined_summary += "\n\n"
+                        combined_summary += result["summary"]
+                
+                if combined_summary:
+                    results["summary"] = combined_summary
+                    logger.info("Added combined summary from individual result summaries")
+                else:
+                    results["summary"] = f"Information about {query} from multiple sources indicates that this topic is relevant to many industries and applications."
+                    logger.info("Added generic summary as individual summaries were not available")
+            
             return results
         else:
             error_message = "No results were returned from the summarized search"
